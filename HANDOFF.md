@@ -124,6 +124,11 @@ Starting with `pg_ctl` directly, as in the second line, runs the server detached
 
 Format: `YYYY-MM-DD — what changed — files — why/notes`
 
+- 2026-10-03 — Owner asked why BitMart isn't fetching. Cause: the BitMart address's last DEOD transfer was **2026-08-19**, so its 24h/7d/30d views are empty and the sync is fine.
+  - Checked with a free public BSC node (`balanceOf` at the latest block). For all 3 exchanges, the on-chain balance equals stored IN − OUT exactly (BitMart 15,552,604.1483; MEXC 24,317,613.7570; Toobit 11,943,475.7613).
+  - Owner said yes to a Dune search for other BitMart wallets. I did **not** run it: `verify/06_discover_exchange_addresses.sql` already covered all 29 Dune-labelled BitMart addresses on BNB over full history on 2026-10-02, and found only dust on the others. A rerun would cost credits and return the same answer. 0 credits spent.
+  - Free checks instead: BitMart's DEOD activity fell from ~300 transfers/month (Jun 322, Jul 295) to 3 in Aug and 0 since 2026-08-19. The address nonce is 1,212,280, about the same as the "1.21M" noted in `config/deod.yaml` on 2026-10-02, so it is not sending much of anything else either (a rough comparison only).
+  - Unknown: why BitMart stopped using this address for DEOD. If they moved to a new wallet, finding it needs a new approach, such as tracing where the last large OUT transfers went (e.g. 4,999,687 DEOD to `0x5fec…e242be` on 2026-07-27), not another label search.
 - 2026-10-03 — Started worker, API and web as detached processes (owner said "start").
   - All 12 pages and the CSV export return 200, and the dashboard shows "Data through 2026-10-03 06:43 UTC".
   - The worker logged "no completed day to sync yet", as expected.
