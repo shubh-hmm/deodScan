@@ -56,3 +56,17 @@ a.link { color: var(--s1); }
 a.link:hover { text-decoration: underline; }
 
 input, select { background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 13px; color: var(--text); }
+
+::selection { background: color-mix(in srgb, var(--s1) 40%, transparent); }
+
+:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; }
+
+html { scrollbar-color: var(--axis) var(--page); }
+
+/* Loading placeholders */
+.skeleton { border-radius: 8px; background: var(--surface); border: 1px solid var(--border); animation: skeleton-pulse 1.4s ease-in-out infinite; }
+@keyframes skeleton-pulse { 50% { background: var(--surface-2); } }
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
+
+/* Keep long tables readable: header stays visible inside scrolling containers */
+table.data thead th { position: sticky; top: 0; background: var(--surface); }

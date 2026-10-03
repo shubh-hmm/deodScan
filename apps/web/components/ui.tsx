@@ -4,27 +4,27 @@ import { fmtDeod, short } from '@/lib/format';
 
 export function Card({ title, children, actions, className = '' }: { title?: ReactNode; children: ReactNode; actions?: ReactNode; className?: string }) {
   return (
-    <section className={`rounded-lg border border-line bg-surface ${className}`}>
+    <section className={`min-w-0 rounded-lg border border-line bg-surface ${className}`}>
       {(title || actions) && (
         <header className="flex items-center justify-between gap-4 border-b border-line px-4 py-2.5">
           <h2 className="text-sm font-medium text-ink">{title}</h2>
           {actions && <div className="flex items-center gap-2 text-xs">{actions}</div>}
         </header>
       )}
-      <div>{children}</div>
+      <div className="overflow-x-auto">{children}</div>
     </section>
   );
 }
 
 export function Stat({ label, value, sub, title, tone }: { label: string; value: ReactNode; sub?: ReactNode; title?: string; tone?: 'in' | 'out' }) {
   return (
-    <div className="rounded-lg border border-line bg-surface px-4 py-3" title={title}>
+    <div className={`min-w-0 rounded-lg border border-line border-t-2 bg-surface px-4 py-3 ${tone === 'in' ? 'border-t-s1' : tone === 'out' ? 'border-t-s2' : 'border-t-line'}`} title={title}>
       <div className="flex items-center gap-2 text-xs text-muted">
         {tone && <span className={`inline-block h-2 w-2 rounded-full ${tone === 'in' ? 'bg-s1' : 'bg-s2'}`} />}
         {label}
       </div>
-      <div className="mt-1 text-2xl font-semibold text-ink">{value}</div>
-      {sub && <div className="mt-0.5 text-xs text-ink-2">{sub}</div>}
+      <div className="num mt-1 truncate text-2xl font-semibold tracking-tight text-ink">{value}</div>
+      {sub && <div className="mt-0.5 text-xs leading-snug text-ink-2">{sub}</div>}
     </div>
   );
 }

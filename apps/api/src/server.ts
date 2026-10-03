@@ -7,6 +7,7 @@ import { getPool, migrate, refreshWalletSummary, deriveExchangeFlows, seedFromCo
 import * as A from '@deod/analytics';
 import { syncAllCompletedDays, SyncBusyError } from '@deod/worker';
 import { toCsv } from './csv.js';
+import { getPrice } from './price.js';
 
 const env = loadEnv();
 const cfg = loadConfig();
@@ -81,6 +82,15 @@ app.get('/api/meta', async () => ({
   traderNote:
     'PancakeSwap trader = transaction signer (tx_from). The Swap event recipient is shown separately; it is often a router or aggregator contract.',
 }));
+
+app.get('/api/price', async (req, reply) => {
+  try {
+    return await getPrice(cfg.token.address);
+  } catch (err) {
+    req.log.warn({ err: (err as Error).message }, 'price unavailable');
+    return reply.code(503).send({ error: 'price unavailable' });
+  }
+});
 
 app.get('/api/overview', async (req) => A.overview(db, windowOf(req.query)));
 

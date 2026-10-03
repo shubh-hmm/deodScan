@@ -5,7 +5,7 @@ A read-only dashboard that tracks DEOD token movement on **BNB Chain**:
 - DEOD sent into, and withdrawn from, the monitored **MEXC**, **BitMart** and **Toobit** addresses
 - DEOD buys and sells in the **PancakeSwap V2 and V3** DEOD/USDT pools
 
-The app never signs, sends or trades anything. Dune is the only data source; the app holds no private keys and does not use any exchange API.
+The app never signs, sends or trades anything. Dune is the only source of on-chain data; the app holds no private keys and does not use any exchange API. The one other data source is the live DEOD market price in the dashboard header, from the free CoinGecko API (no key). It is shown as a market price, kept separate from the on-chain data, and is never stored.
 
 ```
 Dune (BNB Chain) ──► worker (sync from Dune, check rows, write to DB) ──► PostgreSQL ──► API (Fastify) ──► Web (Next.js)
@@ -105,6 +105,7 @@ These read endpoints take `range=1h|6h|24h|7d|30d|all|custom` (with `from` and `
 
 | Endpoint | Returns |
 |---|---|
+| `/api/price` | Live DEOD/USD price, 24h change, volume and market cap from CoinGecko. Cached for 60 s; if CoinGecko is down it serves the last good value (`stale: true`) for up to 10 min, then returns 503. |
 | `/api/overview` | Dashboard summary |
 | `/api/flows` | Exchange flows. Filters: `exchange`, `direction`, `wallet`, `min`, `max`, `sort`. CSV. |
 | `/api/flows/series` | Flow totals per hour or day |

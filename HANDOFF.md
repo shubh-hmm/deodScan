@@ -124,6 +124,17 @@ Starting with `pg_ctl` directly, as in the second line, runs the server detached
 
 Format: `YYYY-MM-DD — what changed — files — why/notes`
 
+- 2026-10-03 — **UI upgrade + live DEOD price** (owner request: "improve UI more, add real-time price at top from CoinGecko, free").
+  - **Price:** checked that CoinGecko lists DEOD (id `decentrawood`) by contract address on platform `binance-smart-chain`.
+    - `apps/api/src/price.ts` and `GET /api/price`: the API fetches CoinGecko at most once per 60 s (shared cache, one request in flight at a time). If CoinGecko fails it serves the last good value (`stale: true`) for up to 10 min, then returns 503. No API key is needed.
+    - Browser path: `apps/web/app/api-price/route.ts` is a proxy, and `components/price-ticker.tsx` polls it every 30 s, only while the tab is visible. The browser never calls CoinGecko or the API directly.
+    - The header shows the price, 24h change (arrow + sign, not colour alone), 24h volume, market cap, a CoinGecko link, and a "Live / Delayed" label.
+    - **Not on-chain data:** it is a market price. It is labelled as such in the footer, is never stored, and is separate from the Dune data. The README no longer says Dune is the only source.
+  - **UI:** sticky header and sidebar; the current page is highlighted in the menu (`components/nav-links.tsx`); the mobile menu lists every page (it had 3 before); a "Data through" block in the sidebar on every page; a loading skeleton (`app/loading.tsx`); an error page with retry (`app/error.tsx`); stat cards with a coloured top accent; tables scroll sideways instead of stretching the page; sticky table headers; focus rings; max page width 1600px.
+  - **Bug found and fixed:** Node and browsers format compact USD differently ("$10.8M" vs "$10.80M"), which caused a React hydration error in the ticker. The ticker now formats by hand. Any client component that shows `Intl` compact numbers will hit the same problem.
+  - **Next.js note:** this version's `error.tsx` receives `retry`, not `reset` (see `node_modules/next/dist/docs`).
+  - **Checks:** typecheck is clean for the API and the web app. Using headless Edge with proper phone emulation (puppeteer-core installed in the scratchpad, not in the project): 8 pages × (390px and 1440px) have no sideways overflow and 0 browser console errors. Screenshots were reviewed. 27/27 tests pass.
+  - Caveat: plain `--window-size` in headless Edge has a minimum width and crops the screenshot, so use device emulation for phone checks.
 - 2026-10-03 — Owner asked why BitMart isn't fetching. Cause: the BitMart address's last DEOD transfer was **2026-08-19**, so its 24h/7d/30d views are empty and the sync is fine.
   - Checked with a free public BSC node (`balanceOf` at the latest block). For all 3 exchanges, the on-chain balance equals stored IN − OUT exactly (BitMart 15,552,604.1483; MEXC 24,317,613.7570; Toobit 11,943,475.7613).
   - Owner said yes to a Dune search for other BitMart wallets. I did **not** run it: `verify/06_discover_exchange_addresses.sql` already covered all 29 Dune-labelled BitMart addresses on BNB over full history on 2026-10-02, and found only dust on the others. A rerun would cost credits and return the same answer. 0 credits spent.
