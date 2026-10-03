@@ -1,0 +1,76 @@
+# Central DEOD monitor configuration. All addresses used by queries and the app come from here.
+# "verification" notes record HOW each value was established (on-chain eth_call, block 125272060, 2026-10-02).
+
+chain:
+  name: BNB Chain
+  slug: bnb            # Dune `blockchain` value
+  explorer_tx_url: https://bscscan.com/tx/
+  explorer_address_url: https://bscscan.com/address/
+
+token:
+  symbol: DEOD
+  name: Decentrawood
+  chain: bnb
+  address: "0x3510fbbc13090f991ffa523527113a166161683e"
+  decimals: 18
+  verification: "token0() of both supplied pools; symbol()=Deod, name()=Decentrawood, decimals()=18, totalSupply()=1,890,000,000"
+
+quote_tokens:
+  USDT:
+    address: "0x55d398326f99059ff775485246999027b3197955"
+    decimals: 18          # BSC-USD is 18 decimals on BNB Chain (verified via decimals())
+    usd_peg: true         # USD value derived as 1 USDT = 1 USD; stored with usd_basis = 'usdt_peg'
+
+# Exchange-controlled addresses on BNB Chain ONLY. Each entry is ONE monitored address, not the exchange's full wallet set.
+# Discovery (verify/06, 2026-10-02): of the Dune-labelled BNB addresses for MEXC (21), BitMart (29) and Cobo (14),
+# only these had DEOD activity. Others received 5-15 DEOD total, never sent any, and are not monitored:
+#   MEXC 5 0x2e8f79ad740de90dc5f5a9f0d8d9661a60725e64, MEXC 21 0x9642b23ed1e01df1092b92641051881a322f5d4e,
+#   BitMart 19 0x6f6c1073266902197350463620591c0ff9467e85, BitMart 7 0xeacb50a28630a4c44a884158ee85cbc10d2b3f10,
+#   BitMart 20 0x051c869bf94ba4ad372f88b227d78de4508eabf3, Cobo 2 0xbf957e1c121fa769580d29bf320ee8bff138ad12
+exchanges:
+  mexc:
+    name: MEXC
+    addresses:
+      - address: "0x4982085c9e2f89f2ecb8131eca71afad896e89cb"
+        address_type: hot_wallet   # EOA; nonce 21.29M; holds ~24.2M DEOD. Dune cex.addresses label: "MEXC 4" (Dune knows 21 MEXC addresses on BNB)
+        dune_label: "MEXC 4"
+        source: user_supplied
+        verified: false
+  bitmart:
+    name: BitMart
+    addresses:
+      - address: "0xa23ef2319ba4c933ebfdba80c332664a6cb13f1a"
+        address_type: hot_wallet   # EOA; nonce 1.21M; holds ~15.6M DEOD. Dune cex.addresses label: "BitMart 16" (Dune knows 29 BitMart addresses on BNB)
+        dune_label: "BitMart 16"
+        source: user_supplied
+        verified: false
+  toobit:
+    name: Toobit
+    addresses:
+      - address: "0xb0b1177e8b32bfb9744c50f1350c6a614cc1aa77"
+        address_type: custody_wallet   # EOA; nonce 3.78M. Dune label "Cobo 4" (Cobo custody). Treated as Toobit by owner decision 2026-10-02; Dune has no Toobit labels on BNB.
+        dune_label: "Cobo 4"
+        note: "Address labelled Cobo custody by Dune; designated Toobit by project owner"
+        source: user_supplied
+        verified: false
+
+# NOTE: the supplied V2/V3 labels were swapped. Corrected here based on factory() and factory lookups.
+pancakeswap:
+  v2:
+    factory: "0xca143ce32fe78f1f7019d7d551a6402fc5350c73"
+    pools:
+      - address: "0xd693c42610bd30e63b0a68a25918445a5f9a1d20"
+        pair: DEOD/USDT
+        token0: DEOD
+        token1: USDT
+        verification: "factory()=V2 factory; V2 getPair(DEOD,USDT) returns this address; getReserves() works"
+      # DEOD/WBNB V2 pair 0xe77ee71370bd0d43c6b5df68a83961c476509ffb exists but holds dust (reserves < 1e-6). Not monitored.
+  v3:
+    factory: "0x0bfbcf9fa4f9c56b0f40a671ad40e0805a091865"
+    pools:
+      - address: "0x185d73ec966d464a40372cd7e737bb68b0b95f1f"
+        pair: DEOD/USDT
+        token0: DEOD
+        token1: USDT
+        fee_tier: 10000   # 1%
+        verification: "factory()=V3 factory; V3 getPool(DEOD,USDT,10000) returns this address; slot0()/liquidity() work"
