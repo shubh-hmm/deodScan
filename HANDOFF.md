@@ -73,7 +73,16 @@ Note: `queries/dune/exchange_flows.sql` exists but the README lists only the two
 ## 5. Current state
 
 - Code for all components (worker, API, web, packages, migrations, queries) is written; see the README for run commands.
-- Git: branch `master`, **no commits yet**. Everything is untracked. The default/PR branch is `main`.
+- Git: branch `master`. The initial commit `49ad266` (2026-10-03) holds everything. The default/PR branch is `main`.
+- **Running on the owner's PC (since 2026-10-03 ~07:30 UTC), as detached hidden processes:**
+  - Postgres on :5433, started with `pg_ctl`.
+  - Worker, which checks hourly.
+  - API on :4000 and web on :3000; open http://localhost:3000.
+  - Logs: `logs/worker.log`, `logs/api.log`, `logs/web.log` (git-ignored).
+  - These **do not survive a reboot**. To start again: run the `pg_ctl ... start` line from the gotcha below, then for each of `worker`, `api`, `web`, in PowerShell:
+    `Start-Process cmd.exe -ArgumentList "/c npm run <name> > logs\<name>.log 2>&1" -WorkingDirectory G:\Monitor -WindowStyle Hidden`
+  - To stop: find the PID with `Get-NetTCPConnection -LocalPort 4000` (or 3000) and run `Stop-Process`. For the worker, stop the `node` process whose command line includes `apps/worker/src/index.ts`.
+  - Gotcha: if a port is already taken, the new process logs `EADDRINUSE` and exits while the old process keeps serving. Check the logs after a restart.
 - Checks (2026-10-03): `npm test` passes (22/22). `npm run typecheck` is clean. The web app (`apps/web`, which the root typecheck does not cover) is also clean with `npx tsc --noEmit`.
 - Local DB (`npm run db:dev`, data in `.pgdata/`), counted 2026-10-03:
   - **Sync model (owner decision 2026-10-03): daily, going forward. No historical swap backfill.**
@@ -105,7 +114,8 @@ Starting with `pg_ctl` directly, as in the second line, runs the server detached
 ## 6. Next steps / open items
 
 - [x] ~~Swap backfill 2026-01-01 → 2026-09-25~~: the owner declined on 2026-10-03; only daily monitoring going forward is needed. Swap history starts 2026-09-25. Don't re-propose this unless asked.
-- [ ] Run `npm run worker` permanently (or schedule `npm run sync -- daily` once a day after 02:00 UTC). Each day costs about 0.2–1 credit plus export. The worker is **not** running yet; the owner should choose where to host it.
+- [x] Worker running on the owner's PC (2026-10-03). It only syncs while the PC is on and the processes are up.
+- [ ] For always-on monitoring: move to a server (VPS + `docker-compose.yml` Postgres) or set the processes to start on Windows startup. Waiting on the owner's choice.
 - [ ] After 2026-10-04 02:00 UTC: run or confirm the first daily sync of 2026-10-03, and check `sync_runs` shows mode `daily` with 0 rejected rows.
 - [ ] Optional: the 1h/6h/24h ranges count back from the current time, so with daily data they show little or nothing for today. The owner may want them to count back from "data through" instead.
 - [ ] Make the initial git commit (only when the user asks).
@@ -114,6 +124,11 @@ Starting with `pg_ctl` directly, as in the second line, runs the server detached
 
 Format: `YYYY-MM-DD — what changed — files — why/notes`
 
+- 2026-10-03 — Started worker, API and web as detached processes (owner said "start").
+  - All 12 pages and the CSV export return 200, and the dashboard shows "Data through 2026-10-03 06:43 UTC".
+  - The worker logged "no completed day to sync yet", as expected.
+  - Replaced an orphaned API process left on :4000 from an earlier check.
+  - Added `logs/` to `.gitignore`. Made the initial commit `49ad266` (79 files; checked: no `.env`, data files or secrets).
 - 2026-10-03 — **Switched to completed-day sync** (owner: daily monitoring going forward, no historical backfill, don't keep re-fetching the incomplete day).
   - Added `completedDayWindows` and `utcDayStart` to `packages/core` with 5 tests; 27/27 pass.
   - Rewrote the worker sync (`apps/worker/src/sync.ts`, `index.ts`). The CLI `incremental` command became `daily`. Admin sync now returns `daysFetched`.
