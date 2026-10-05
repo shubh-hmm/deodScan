@@ -7,7 +7,7 @@
 > code, config, queries, data, or decisions. Do not wait until the end of the session. Short entries
 > are fine; skipping them is not.
 
-Last updated: 2026-10-03
+Last updated: 2026-10-05
 
 ---
 
@@ -74,7 +74,7 @@ Note: `queries/dune/exchange_flows.sql` exists but the README lists only the two
 
 - Code for all components (worker, API, web, packages, migrations, queries) is written; see the README for run commands.
 - Git: branch `master`. The initial commit `49ad266` (2026-10-03) holds everything. The default/PR branch is `main`.
-- **Running on the owner's PC (since 2026-10-03 ~07:30 UTC), as detached hidden processes:**
+- **Running on the owner's PC (restarted 2026-10-05 ~09:50 UTC after a PC shutdown; before that since 2026-10-03), as detached hidden processes:**
   - Postgres on :5433, started with `pg_ctl`.
   - Worker, which checks hourly.
   - API on :4000 and web on :3000; open http://localhost:3000.
@@ -97,7 +97,8 @@ Note: `queries/dune/exchange_flows.sql` exists but the README lists only the two
   - `dex_swaps`: **only 2026-09-25 → 2026-10-02.** V2 has 995 rows, V3 has 4,456. The swap backfill started at 2026-09-25, not 2026-01-01.
   - `ingest_rejections` 0, `wallet_summary` 1,203.
   - Dune credits spent: about 22.3 on transfers and 1.6 on swaps, plus 2.6 on the 2026-10-03 swap-count check.
-  - After the 2026-10-03 catch-up sync, data runs to **2026-10-03 06:44 UTC** (+33 transfers, +367 swaps). The worker is not left running.
+  - **Data now runs through 2026-10-05 00:00 UTC** (every completed day synced; 2026-10-05 is still in progress and is fetched after 02:00 UTC on 2026-10-06).
+  - Daily-sync checks: 2026-10-03 and 2026-10-04 were fetched on 2026-10-05 for both queries, 0 rejected, about 0.31 credits in total.
 - **Swap volume in Dune** (from `verify/07_swap_counts.sql`, 2026-01-01 → 2026-10-03): **92,486 swaps**.
   - V3 has swaps from 2026-01-14 onward. V2 only from **2026-05-19**, when that pool was created.
   - Peak month: Aug 2026, with 15.2k V2 swaps.
@@ -116,7 +117,7 @@ Starting with `pg_ctl` directly, as in the second line, runs the server detached
 - [x] ~~Swap backfill 2026-01-01 → 2026-09-25~~: the owner declined on 2026-10-03; only daily monitoring going forward is needed. Swap history starts 2026-09-25. Don't re-propose this unless asked.
 - [x] Worker running on the owner's PC (2026-10-03). It only syncs while the PC is on and the processes are up.
 - [ ] For always-on monitoring: move to a server (VPS + `docker-compose.yml` Postgres) or set the processes to start on Windows startup. Waiting on the owner's choice.
-- [ ] After 2026-10-04 02:00 UTC: run or confirm the first daily sync of 2026-10-03, and check `sync_runs` shows mode `daily` with 0 rejected rows.
+- [x] First daily syncs confirmed on 2026-10-05 (caught up 2026-10-03 and 2026-10-04; 0 rejected).
 - [ ] Optional: the 1h/6h/24h ranges count back from the current time, so with daily data they show little or nothing for today. The owner may want them to count back from "data through" instead.
 - [ ] Make the initial git commit (only when the user asks).
 
@@ -124,6 +125,11 @@ Starting with `pg_ctl` directly, as in the second line, runs the server detached
 
 Format: `YYYY-MM-DD — what changed — files — why/notes`
 
+- 2026-10-05 — Owner asked "everything is working?". It was not: the PC had been shut down after ~13:07 UTC on 2026-10-03, so Postgres, API, web and worker were all stopped, and the days 2026-10-03 and 2026-10-04 had not been synced.
+  - Restarted Postgres with `pg_ctl` (automatic crash recovery worked; data intact: 5,714 transfers, 5,818 swaps, 1,233 wallets), then the API, web and worker as detached processes. No port conflicts.
+  - The worker caught up both missed days by itself: transfers 2026-10-03 +8 (5 already stored), 2026-10-04 +12; swaps 2026-10-03 +241 (57 already stored), 2026-10-04 +169. 0 rejected, ~0.31 credits.
+  - Checked: API health, price, all 9 pages return 200, and the dashboard shows "Data through 2026-10-05 00:00 UTC". The web server caches `/api/meta` for 60 s, so right after a sync the page can show a mid-sync value for up to a minute.
+  - Lesson: after a PC restart nothing comes back by itself; the owner has not yet chosen auto-start or a server (see Next steps).
 - 2026-10-03 — **UI upgrade + live DEOD price** (owner request: "improve UI more, add real-time price at top from CoinGecko, free").
   - **Price:** checked that CoinGecko lists DEOD (id `decentrawood`) by contract address on platform `binance-smart-chain`.
     - `apps/api/src/price.ts` and `GET /api/price`: the API fetches CoinGecko at most once per 60 s (shared cache, one request in flight at a time). If CoinGecko fails it serves the last good value (`stale: true`) for up to 10 min, then returns 503. No API key is needed.
