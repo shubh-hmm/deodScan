@@ -77,7 +77,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
 
   return (
     <>
-      <PageHeader eyebrow="Overview" title="DEOD On-Chain Monitor"
+      <PageHeader eyebrow="DEODScan" title="Overview"
         subtitle={`${windowLabel(ov.window)} · BNB Chain · Data through ${m.dataThrough ? `${fmtTime(m.dataThrough)} UTC` : 'n/a'}`}>
         <RangePicker path="/" params={p} />
       </PageHeader>

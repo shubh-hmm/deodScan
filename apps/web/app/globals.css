@@ -45,6 +45,7 @@
   --color-warning: var(--warning);
   --color-critical: var(--critical);
   --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-brand: "Unbounded Variable", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
 }
 
 html { scrollbar-color: var(--axis) var(--page); }
@@ -177,7 +178,7 @@ summary::-webkit-details-marker { display: none; }
 /* Reduced motion: still dismiss, just without the fade */
 @media (prefers-reduced-motion: reduce) { .splash { animation: splash-out 0.01s linear 1.5s forwards; } }
 
-.greet-logo { animation: greet-pop 0.7s cubic-bezier(0.2, 0.9, 0.3, 1.2) both; filter: drop-shadow(0 8px 24px rgba(31, 182, 233, 0.45)); }
+.greet-logo { animation: greet-pop 0.7s cubic-bezier(0.2, 0.9, 0.3, 1.2) both; filter: drop-shadow(0 8px 26px rgba(170, 110, 255, 0.55)); }
 @keyframes greet-pop { from { opacity: 0; transform: scale(0.7); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .greet-logo { animation: none; } }
 
@@ -185,3 +186,7 @@ summary::-webkit-details-marker { display: none; }
 .progress > span { display: block; height: 100%; width: 40%; border-radius: 999px; background: linear-gradient(90deg, #1196c9, #5fd4f4); animation: progress-slide 1.3s ease-in-out infinite; }
 @keyframes progress-slide { 0% { transform: translateX(-110%); } 100% { transform: translateX(260%); } }
 @media (prefers-reduced-motion: reduce) { .progress > span { animation: none; width: 100%; } }
+
+/* ---------- Brand typography ---------- */
+.font-brand { font-family: var(--font-brand); }
+.brand-grad { background: linear-gradient(90deg, #a98bff, #f07ae0); -webkit-background-clip: text; background-clip: text; color: transparent; }

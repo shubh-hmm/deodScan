@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Wordmark } from '@/components/brand';
 import { BrandMark } from '@/components/icons';
 import { OWNER_NAME, QUOTES } from '@/lib/site';
 
@@ -17,8 +18,9 @@ export function GreetingBlock() {
   return (
     <div className="mx-auto flex max-w-xl flex-col items-center px-6 text-center" role="status" aria-live="polite">
       <div className="greet-logo"><BrandMark size={56} /></div>
-      <p className="mt-6 text-sm font-medium tracking-wide text-muted">Welcome back,</p>
-      <h1 className="mt-1 bg-gradient-to-r from-white via-white to-[#5fd4f4] bg-clip-text text-4xl font-semibold tracking-tight text-transparent sm:text-5xl">
+      <Wordmark className="mt-4 text-2xl" />
+      <p className="mt-7 text-sm font-medium tracking-wide text-muted">Welcome back,</p>
+      <h1 className="font-brand mt-2 bg-gradient-to-r from-white via-white to-[#f2b4ec] bg-clip-text text-3xl font-semibold tracking-tight text-transparent sm:text-4xl">
         {OWNER_NAME}
       </h1>
       <p className="mt-5 min-h-[3.25rem] max-w-md text-[15px] italic leading-relaxed text-ink-2 transition-opacity duration-500" style={{ opacity: quote ? 1 : 0 }}>

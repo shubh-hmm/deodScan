@@ -1,4 +1,6 @@
-# DEOD On-Chain Monitor
+# DEODScan
+
+DEODScan is a read-only DEOD on-chain monitor.
 
 A read-only dashboard that tracks DEOD token movement on **BNB Chain**:
 

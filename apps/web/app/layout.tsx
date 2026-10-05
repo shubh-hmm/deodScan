@@ -1,16 +1,18 @@
 import type { Metadata } from 'next';
+import '@fontsource-variable/unbounded';
 import Link from 'next/link';
 import './globals.css';
 import { api, meta, type Meta } from '@/lib/api';
 import { fmtTime } from '@/lib/format';
+import { Wordmark } from '@/components/brand';
 import { BrandMark, Icons } from '@/components/icons';
 import { MobileNav, SideNav } from '@/components/nav-links';
 import { PriceTicker, type PriceData } from '@/components/price-ticker';
 import { Splash } from '@/components/splash';
 
 export const metadata: Metadata = {
-  title: 'DEOD On-Chain Monitor',
-  description: 'Read-only DEOD flow monitoring on BNB Chain: MEXC, Toobit and PancakeSwap V2/V3.',
+  title: 'DEODScan',
+  description: 'DEODScan: read-only DEOD flow monitoring on BNB Chain: MEXC, Toobit and PancakeSwap V2/V3.',
 };
 
 /** The header must never take a page down: if the API or CoinGecko is unreachable, render without the value. */
@@ -34,8 +36,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <Link href="/" className="flex items-center gap-3 border-b border-line px-4 py-4">
               <BrandMark />
               <div className="leading-tight">
-                <div className="text-sm font-semibold tracking-tight">DEOD Monitor</div>
-                <div className="text-[11px] text-muted">BNB Chain · on-chain</div>
+                <Wordmark className="block text-[17px] leading-none" />
+                <div className="mt-1.5 text-[11px] text-muted">BNB Chain · on-chain</div>
               </div>
             </Link>
             <div className="mx-3 mt-3 flex items-center gap-2.5 rounded-xl border border-line bg-surface-2/50 px-3 py-2.5">
@@ -55,6 +57,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </div>
           </aside>
           <div className="min-w-0 flex-1">
+            <Link href="/" className="flex items-center gap-2.5 border-b border-line bg-sidebar/95 px-4 py-2.5 md:hidden">
+              <BrandMark size={26} />
+              <Wordmark className="text-[15px] leading-none" />
+            </Link>
             <header className="sticky top-0 z-20 flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-line bg-page/70 px-4 py-3 backdrop-blur-md md:px-6">
               <PriceTicker initial={price} />
               <form action="/search" className="relative ml-auto w-full max-w-md sm:w-80">
@@ -65,7 +71,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <MobileNav />
             <main className="mx-auto max-w-[1600px] px-4 py-6 md:px-6">{children}</main>
             <footer className="mx-auto max-w-[1600px] border-t border-line px-4 py-5 text-xs leading-relaxed text-muted md:px-6">
-              Read-only analytics · On-chain data: Dune (BNB Chain), synced to PostgreSQL · Times in UTC ·
+              DEODScan · Read-only analytics · On-chain data: Dune (BNB Chain), synced to PostgreSQL · Times in UTC ·
               Live price: <a className="link" href="https://www.coingecko.com/en/coins/decentrawood" target="_blank" rel="noreferrer">CoinGecko</a>{' '}
               (market price, separate from the on-chain data).
             </footer>
