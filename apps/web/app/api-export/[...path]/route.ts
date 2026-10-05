@@ -1,7 +1,7 @@
 // CSV export proxy: the browser downloads from the web origin; the API stays server-side only.
 const BASE = process.env.API_BASE_URL ?? 'http://localhost:4000';
 
-const ALLOWED = [/^flows$/, /^swaps$/, /^wallets\/top$/, /^wallets\/0x[0-9a-fA-F]{40}\/activity\.csv$/];
+const ALLOWED = [/^activity$/, /^flows$/, /^swaps$/, /^wallets\/top$/, /^wallets\/0x[0-9a-fA-F]{40}\/activity\.csv$/];
 
 export async function GET(req: Request, { params }: { params: Promise<{ path: string[] }> }) {
   const path = (await params).path.join('/');

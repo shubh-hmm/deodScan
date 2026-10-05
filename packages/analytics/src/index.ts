@@ -146,6 +146,28 @@ export async function hourlyActivity(db: pg.Pool, w: Window) {
   return rows as { hour: number; inflows: number; outflows: number }[];
 }
 
+/**
+ * Every monitored transaction in the window, newest first: exchange transfers (type "exchange") and PancakeSwap swaps
+ * (type "swap") in one list with common columns. wallet_address is the counterparty wallet for an exchange transfer and the
+ * transaction signer for a swap; counterparty is the exchange address or the pool. Quote/price/USD columns are empty for transfers.
+ */
+export async function listActivity(db: pg.Pool, w: Window, limit: number) {
+  const { rows } = await db.query(
+    `SELECT * FROM (
+       SELECT block_time, 'exchange' AS type, exchange AS venue, direction AS action, wallet_address,
+              exchange_address AS counterparty, amount::text AS deod_amount, NULL::text AS quote_amount,
+              NULL::text AS price, NULL::text AS usd_value, tx_hash, evt_index, block_number
+       FROM exchange_flows WHERE block_time >= $1 AND block_time < $2
+       UNION ALL
+       SELECT block_time, 'swap', 'pancakeswap_v' || version, side, trader_address,
+              pool_address, deod_amount::text, quote_amount::text, price::text, usd_value::text, tx_hash, evt_index, block_number
+       FROM dex_swaps WHERE block_time >= $1 AND block_time < $2
+     ) t ORDER BY block_time DESC, evt_index DESC LIMIT $3`,
+    [lo(w), w.to, limit],
+  );
+  return rows;
+}
+
 export const FlowFilter = z.object({
   exchange: z.string().regex(/^[a-z0-9_]+$/).optional(),
   direction: z.enum(['IN', 'OUT']).optional(),

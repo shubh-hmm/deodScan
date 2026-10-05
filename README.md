@@ -110,6 +110,7 @@ These read endpoints take `range=1h|6h|24h|7d|30d|all|custom` (with `from` and `
 | `/api/price` | Live DEOD/USD price, 24h change, volume and market cap from CoinGecko. Cached for 60 s; if CoinGecko is down it serves the last good value (`stale: true`) for up to 10 min, then returns 503. |
 | `/api/overview` | Dashboard summary |
 | `/api/flows` | Exchange flows. Filters: `exchange`, `direction`, `wallet`, `min`, `max`, `sort`. CSV. |
+| `/api/activity` | Every monitored transaction together: exchange transfers and PancakeSwap swaps, newest first, with common columns (`type`, `venue`, `action`, `wallet_address`, `counterparty`, `deod_amount`, `quote_amount`, `price`, `usd_value`, `tx_hash`…). CSV. |
 | `/api/flows/series` | Flow totals per hour or day |
 | `/api/flows/hourly` | Exchange transfer counts (IN / OUT) by UTC hour of day, 0–23 |
 | `/api/exchanges/:slug` | One exchange's stats, top wallets and history |

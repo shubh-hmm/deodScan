@@ -6,6 +6,7 @@ import { Addr, barStyle, Card, Deod, Dir, Empty, Note, PageHeader, SplitBar, Sta
 import { CumulativeArea, Donut, FlowArea, HourBars, Sparkline } from '@/components/charts';
 import { RAMPS, SERIES } from '@/lib/colors';
 import { ExchangeCards } from '@/components/flow-bars';
+import { ExportMenu } from '@/components/export-menu';
 import { Icons } from '@/components/icons';
 import { RangePicker, rangeParams, windowLabel } from '@/components/range';
 
@@ -73,7 +74,12 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
   const maxRecent = Math.max(0, ...recent.rows.map((f: any) => Number(f.amount)));
   const maxTop = Math.max(0, ...top.rows.map((w: any) => Number(w.volume)));
   const money = (v: number) => `${fmtDeod(v)} DEOD`;
-  const csvHref = `/api-export/flows?${new URLSearchParams(clean(r))}`;
+  const q = new URLSearchParams(clean(r));
+  const exports = [
+    { href: `/api-export/activity?${q}`, title: 'All activity', hint: 'Exchange transfers and PancakeSwap swaps together, newest first' },
+    { href: `/api-export/flows?${q}`, title: 'Exchange flows only', hint: 'MEXC and Toobit deposits and withdrawals' },
+    { href: `/api-export/swaps?${q}`, title: 'PancakeSwap swaps only', hint: 'V2 and V3 buys and sells' },
+  ];
 
   return (
     <>
@@ -104,7 +110,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
 
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
         <Card className="xl:col-span-2" title={`Exchange flow (${bucket === 'hour' ? 'hourly' : 'daily'} graph)`}
-          actions={<a className="btn" href={csvHref}>{Icons.download} Export CSV</a>}>
+          actions={<ExportMenu items={exports} />}>
           <div className="flex flex-wrap gap-2 px-4 pt-4">
             <span className="chip"><span className="h-2 w-2 rounded-full bg-s1" />Total inflow<b className="num font-semibold text-ink">{fmtDeod(t.inflow)}</b></span>
             <span className="chip"><span className="h-2 w-2 rounded-full bg-s2" />Total outflow<b className="num font-semibold text-ink">{fmtDeod(t.outflow)}</b></span>

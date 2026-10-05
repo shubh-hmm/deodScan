@@ -100,6 +100,14 @@ app.get('/api/flows/series', async (req) => {
   return { window: w, rows: await A.flowSeries(db, w, exchange) };
 });
 
+app.get('/api/activity', async (req, reply) => {
+  const w = windowOf(req.query);
+  const { format } = parse(Format.passthrough(), req.query);
+  const { limit } = parse(z.object({ limit: z.coerce.number().int().min(1).max(1000).default(100) }).passthrough(), req.query);
+  const rows = await A.listActivity(db, w, format === 'csv' ? CSV_MAX_ROWS : limit);
+  return format === 'csv' ? sendCsv(reply, 'deod-all-activity', rows) : { window: w, rows };
+});
+
 app.get('/api/flows/hourly', async (req) => {
   const w = windowOf(req.query);
   return { window: w, rows: await A.hourlyActivity(db, w) };
