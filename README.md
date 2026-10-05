@@ -2,7 +2,7 @@
 
 A read-only dashboard that tracks DEOD token movement on **BNB Chain**:
 
-- DEOD sent into, and withdrawn from, the monitored **MEXC**, **BitMart** and **Toobit** addresses
+- DEOD sent into, and withdrawn from, the monitored **MEXC** and **Toobit** addresses
 - DEOD buys and sells in the **PancakeSwap V2 and V3** DEOD/USDT pools
 
 The app never signs, sends or trades anything. Dune is the only source of on-chain data; the app holds no private keys and does not use any exchange API. The one other data source is the live DEOD market price in the dashboard header, from the free CoinGecko API (no key). It is shown as a market price, kept separate from the on-chain data, and is never stored.
@@ -23,11 +23,11 @@ All addresses live in [`config/deod.yaml`](config/deod.yaml). Each entry records
 | PancakeSwap **V2** DEOD/USDT | `0xd693c42610bd30e63b0a68a25918445a5f9a1d20` | `factory()` = V2 factory; `getPair(DEOD,USDT)` returns this address |
 | PancakeSwap **V3** DEOD/USDT 1% | `0x185d73ec966d464a40372cd7e737bb68b0b95f1f` | `factory()` = V3 factory; `getPool(DEOD,USDT,10000)` returns this address |
 | MEXC | `0x4982085c9e2f89f2ecb8131eca71afad896e89cb` | Dune label "MEXC 4" |
-| BitMart | `0xa23ef2319ba4c933ebfdba80c332664a6cb13f1a` | Dune label "BitMart 16" |
 | Toobit | `0xb0b1177e8b32bfb9744c50f1350c6a614cc1aa77` | Dune label "Cobo 4" (Cobo is a custody provider). Counted as Toobit by owner decision. |
 
 - **The V2 and V3 labels in the original brief were swapped.** The table above shows the corrected labels.
-- **Other exchange addresses were checked and left out.** We looked at every address Dune labels on BNB Chain for MEXC, BitMart and Cobo. Apart from the three above, each one only ever received 5–15 DEOD in total and never sent any. They're listed in the config but not monitored.
+- **Other exchange addresses were checked and left out.** We looked at every address Dune labels on BNB Chain for MEXC, BitMart and Cobo. Apart from the two above, each one only ever received 5–15 DEOD in total and never sent any. They're listed in the config but not monitored.
+- **BitMart was removed on 2026-10-05** (owner decision; its address had no DEOD activity after 2026-08-19). Its stored history is archived in `archive/bitmart-removed-2026-10-05.csv`. `node scripts/remove-exchange.mjs <slug>` removes an exchange the same way: it archives first and refuses if any transfer is shared with another exchange.
 - **The flow data is complete.** For every monitored address, IN minus OUT matched its on-chain DEOD balance exactly (checked 2026-10-02), so the stored history has no gaps.
 
 **Coverage:** this monitors the configured addresses only. It does not necessarily include every wallet each exchange controls.

@@ -8,7 +8,7 @@ const USDT = '0x55d398326f99059ff775485246999027b3197955';
 const V2 = '0xd693c42610bd30e63b0a68a25918445a5f9a1d20';
 const V3 = '0x185d73ec966d464a40372cd7e737bb68b0b95f1f';
 const MEXC = '0x4982085c9e2f89f2ecb8131eca71afad896e89cb';
-const BITMART = '0xa23ef2319ba4c933ebfdba80c332664a6cb13f1a';
+const TOOBIT = '0xb0b1177e8b32bfb9744c50f1350c6a614cc1aa77';
 const WALLET = '0x1ffbdf86dcd09980ee8e2e89a301c5e15f2d49c7';
 const TX = '0x3def554e3be238f665e07efe5ce40c69a4063200b37a545670484937da2b495e';
 
@@ -60,7 +60,7 @@ describe('normalizeTransfer', () => {
 });
 
 describe('classifyFlows', () => {
-  const exchangeOf = (a: string) => ({ [MEXC]: 'mexc', [BITMART]: 'bitmart' })[a];
+  const exchangeOf = (a: string) => ({ [MEXC]: 'mexc', [TOOBIT]: 'toobit' })[a];
   it('wallet -> exchange is IN', () => {
     expect(classifyFlows({ fromAddress: WALLET, toAddress: MEXC }, exchangeOf)).toEqual([
       { exchange: 'mexc', exchangeAddress: MEXC, walletAddress: WALLET, direction: 'IN' },
@@ -72,8 +72,8 @@ describe('classifyFlows', () => {
     ]);
   });
   it('exchange -> exchange yields one leg per exchange', () => {
-    const legs = classifyFlows({ fromAddress: MEXC, toAddress: BITMART }, exchangeOf);
-    expect(legs.map((l) => `${l.exchange}:${l.direction}`)).toEqual(['bitmart:IN', 'mexc:OUT']);
+    const legs = classifyFlows({ fromAddress: MEXC, toAddress: TOOBIT }, exchangeOf);
+    expect(legs.map((l) => `${l.exchange}:${l.direction}`)).toEqual(['toobit:IN', 'mexc:OUT']);
   });
   it('self-transfer and unrelated transfers yield nothing', () => {
     expect(classifyFlows({ fromAddress: MEXC, toAddress: MEXC }, exchangeOf)).toEqual([]);

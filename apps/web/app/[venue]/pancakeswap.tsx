@@ -64,14 +64,37 @@ export default async function PancakePage({ searchParams }: { searchParams: Sear
         </div>
       </PageHeader>
 
-      <div className="mb-4 space-y-2">
-        {pools.map((pl) => (
-          <Note key={pl.address}>
-            V{pl.version} pool <span className="font-mono">{pl.address}</span> · {pl.pair}{pl.fee_tier ? ` · fee ${pl.fee_tier / 10000}%` : ''} · {pl.verification}
-          </Note>
-        ))}
-        <Note>{m.traderNote} USD values use USDT = $1 (the pools&apos; quote token).</Note>
-      </div>
+      <Card title="Monitored pools" className="mb-4">
+        <ul>
+          {pools.map((pl) => (
+            <li key={pl.address} className="border-b border-line px-4 py-3 last:border-b-0">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <span className="badge-icon cyan !h-8 !w-8 text-[11px] font-bold">V{pl.version}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+                    PancakeSwap V{pl.version} · {pl.pair}
+                    {pl.fee_tier ? <span className="pill">fee {pl.fee_tier / 10000}%</span> : null}
+                    <span className="pill">Verified on-chain</span>
+                  </div>
+                  <div className="mt-0.5 font-mono text-xs text-muted" title={pl.address}>{pl.address}</div>
+                </div>
+                <a className="link inline-flex items-center gap-1 text-xs" href={`${m.chain.explorer_address_url}${pl.address}`} target="_blank" rel="noreferrer">
+                  View on BscScan {Icons.external}
+                </a>
+              </div>
+              {pl.verification && (
+                <details className="mt-2 text-xs text-ink-2">
+                  <summary className="cursor-pointer select-none text-muted hover:text-ink">How this was verified</summary>
+                  <p className="mt-1.5 rounded-lg bg-surface-2/60 px-3 py-2 leading-relaxed">{pl.verification}</p>
+                </details>
+              )}
+            </li>
+          ))}
+        </ul>
+        <div className="border-t border-line p-3">
+          <Note>{m.traderNote} USD values use USDT = $1 (the pools&apos; quote token).</Note>
+        </div>
+      </Card>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
         <Stat icon={Icons.volume} label="DEOD volume" value={fmtDeod(s.deod_volume)} sub={fmtUsd(s.usd_volume, true)} title={`${s.deod_volume} DEOD`} />

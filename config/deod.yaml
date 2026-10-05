@@ -22,6 +22,9 @@ quote_tokens:
     usd_peg: true         # USD value derived as 1 USDT = 1 USD; stored with usd_basis = 'usdt_peg'
 
 # Exchange-controlled addresses on BNB Chain ONLY. Each entry is ONE monitored address, not the exchange's full wallet set.
+# BitMart was REMOVED on 2026-10-05 by owner decision (its address 0xa23ef2319ba4c933ebfdba80c332664a6cb13f1a, Dune label
+# "BitMart 16", had no DEOD activity after 2026-08-19). Its stored history is archived in archive/bitmart-removed-2026-10-05.csv.
+# The discovery notes below still list the BitMart addresses that were checked, as historical evidence.
 # Discovery (verify/06, 2026-10-02): of the Dune-labelled BNB addresses for MEXC (21), BitMart (29) and Cobo (14),
 # only these had DEOD activity. Others received 5-15 DEOD total, never sent any, and are not monitored:
 #   MEXC 5 0x2e8f79ad740de90dc5f5a9f0d8d9661a60725e64, MEXC 21 0x9642b23ed1e01df1092b92641051881a322f5d4e,
@@ -34,14 +37,6 @@ exchanges:
       - address: "0x4982085c9e2f89f2ecb8131eca71afad896e89cb"
         address_type: hot_wallet   # EOA; nonce 21.29M; holds ~24.2M DEOD. Dune cex.addresses label: "MEXC 4" (Dune knows 21 MEXC addresses on BNB)
         dune_label: "MEXC 4"
-        source: user_supplied
-        verified: false
-  bitmart:
-    name: BitMart
-    addresses:
-      - address: "0xa23ef2319ba4c933ebfdba80c332664a6cb13f1a"
-        address_type: hot_wallet   # EOA; nonce 1.21M; holds ~15.6M DEOD. Dune cex.addresses label: "BitMart 16" (Dune knows 29 BitMart addresses on BNB)
-        dune_label: "BitMart 16"
         source: user_supplied
         verified: false
   toobit:

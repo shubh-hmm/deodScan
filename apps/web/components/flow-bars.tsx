@@ -22,7 +22,7 @@ export function ExchangeCards({ rows }: { rows: Row[] }) {
     </div>
   );
   return (
-    <div className="grid gap-4 md:grid-cols-3">
+    <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
       {rows.map((r) => (
         <div key={r.exchange} className="card tile rise p-4">
           <div className="mb-3 flex items-center gap-3">

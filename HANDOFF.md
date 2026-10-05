@@ -14,7 +14,7 @@ Last updated: 2026-10-05
 ## 1. What this project is
 
 A read-only dashboard tracking DEOD token movement on **BNB Chain only**:
-- DEOD flowing into/out of monitored **MEXC**, **BitMart**, **Toobit** addresses
+- DEOD flowing into/out of monitored **MEXC** and **Toobit** addresses (BitMart was removed on 2026-10-05, see §3)
 - DEOD buys/sells in **PancakeSwap V2 and V3** DEOD/USDT pools
 
 Pipeline: `Dune ──► worker ──► PostgreSQL ──► API (Fastify, :4000) ──► Web (Next.js, :3000)`.
@@ -57,6 +57,7 @@ Note: `queries/dune/exchange_flows.sql` exists but the README lists only the two
 - **The V2 and V3 pool labels in the original brief were swapped.** `config/deod.yaml` and the README have the corrected labels.
 - **Toobit address** `0xb0b1…aa77` is labelled "Cobo 4" by Dune (a custody provider). The owner decided it counts as Toobit.
 - Other Dune-labelled MEXC/BitMart/Cobo addresses each only ever received 5–15 DEOD, so they are listed in the config but not monitored.
+- **BitMart was removed on 2026-10-05 (owner decision: "since it's no longer working").** Its address `0xa23e…3f1a` had no DEOD transfer after 2026-08-19. Its 1,052 stored transfers were archived to `archive/bitmart-removed-2026-10-05.csv` and deleted from the database. It is gone from the config, the API, the menu and all totals. The brief (`docs/ORIGINAL_BRIEF.md`) still lists BitMart; that is the original spec and is left unchanged.
 - Flow data was complete on 2026-10-02: IN minus OUT matched the on-chain balance for every monitored address.
 - Trader = `tx_from` (the transaction signer). Dune's `taker` is stored as the recipient; it's a router in ~74% of swaps.
 - Amounts are exact `NUMERIC`. Dune is asked for raw amounts as text, and decimals travel as strings in the API.
@@ -93,7 +94,7 @@ Note: `queries/dune/exchange_flows.sql` exists but the README lists only the two
   - The dashboard shows "Data through …" (`/api/meta` `dataThrough` = min `synced_until`).
   - The first daily fetch will be all of 2026-10-03, after 2026-10-04 02:00 UTC. That day was partly loaded up to 06:44 by the catch-up sync; already-stored rows are skipped.
 - `token_transfers`: 5,681 rows, 2026-01-09 → 2026-10-02 08:47. Full history from the 2026-01-01 backfill.
-  - `exchange_flows`: MEXC 2,337 IN / 1,312 OUT · BitMart 442 / 610 · Toobit 715 / 265.
+  - `exchange_flows` (2026-10-03 snapshot, includes BitMart, later removed): MEXC 2,337 IN / 1,312 OUT · BitMart 442 / 610 · Toobit 715 / 265. **Now (2026-10-05, after the BitMart removal):** MEXC 2,386 IN / 1,313 OUT · Toobit 717 IN / 266 OUT; 4,682 transfers, 1,218 wallets, 6,228 swaps.
   - `dex_swaps`: **only 2026-09-25 → 2026-10-02.** V2 has 995 rows, V3 has 4,456. The swap backfill started at 2026-09-25, not 2026-01-01.
   - `ingest_rejections` 0, `wallet_summary` 1,203.
   - Dune credits spent: about 22.3 on transfers and 1.6 on swaps, plus 2.6 on the 2026-10-03 swap-count check.
@@ -125,6 +126,19 @@ Starting with `pg_ctl` directly, as in the second line, runs the server detached
 
 Format: `YYYY-MM-DD — what changed — files — why/notes`
 
+- 2026-10-05 — **BitMart removed** (owner: "remove bitmart, since it's no longer working"), plus an every-exchange health check and a PancakeSwap page tidy-up. 0 Dune credits.
+  - **What was done**
+    - Data: new reusable script `scripts/remove-exchange.mjs <slug> [--dry-run]`. It archives the exchange's transfers to a CSV, then deletes its rows (flows, transfers, address, exchange) in one transaction. It refuses if any transfer is shared with another monitored exchange.
+    - For BitMart: 1,052 transfers archived to `archive/bitmart-removed-2026-10-05.csv`, and 1,052 flows, 1,052 transfers, 1 address and the exchange row deleted. 0 transfers were shared, so MEXC and Toobit are **unchanged** (identical counts and totals before and after). 41 wallets seen only through BitMart left the rankings (1,259 → 1,218).
+    - Config and code: BitMart removed from `config/deod.yaml` (a comment records the removal; the historical discovery comments are kept as evidence), the menu, the page title, `format.ts`, README and the unit-test fixture (now uses Toobit). `/api/exchanges/bitmart` now returns 400, and `/BitMart` shows a new themed 404 page (`app/not-found.tsx`). The exchange-card grid now fits any number of exchanges (`auto-fit`).
+    - The worker needs no change: it reads the monitored addresses from the database, so it no longer queries BitMart.
+    - **To restore BitMart:** re-add the block to `config/deod.yaml`, restart (it re-seeds the address), then re-fetch with `npm run sync -- backfill --query exchange_transfers --from 2026-01-01 --window-days 92` (about 22 credits, ask the owner first), or re-import the archived CSV.
+  - **Health check** (a scratch script, not kept): 3 services up; both sync queries `ok` through 2026-10-05 00:00; 0 rejected rows; for MEXC and Toobit the API matches the database at 24h/7d/30d/all (HTTP 200, 1–73 ms), the flows list and CSV exports are complete (3,699 and 983 rows), and PancakeSwap combined/V2/V3 swap counts match the database (6,228 / 1,305 / 4,923). All 11 pages at phone and desktop widths: 0 overflow, 0 console errors.
+    - **Toobit's balance matches the chain exactly** (11,943,475.7613 DEOD).
+    - **MEXC's balance does not: on-chain is 2,769.51 DEOD LOWER than stored (IN − OUT).** The likely cause is MEXC withdrawals today (2026-10-05), which the daily sync has not fetched yet (it only fetches completed days). The size is normal for a day of MEXC activity. It is plausible but NOT proven: the free public BSC node refuses log queries (`limit exceeded`) and keeps no history, so the exact check was impossible. **To prove it:** after the 2026-10-06 ~02:00 UTC sync, today's data will be in. An exact check costs about 0.2 Dune credits (today's MEXC transfers); ask the owner first. Until then, treat MEXC as "unverified for today".
+    - One "failed Dune run" is on record: run #1 on 2026-10-02, a bug in the credits column of the run log that was fixed the same day. The same window later succeeded. It is historical.
+  - **PancakeSwap page:** the three grey technical notes (pool addresses and "factory()=V2 factory; getPair… works") were the stored proof that each address is the real DEOD/USDT pool. They are now a "Monitored pools" panel: version, pair, fee, "Verified on-chain", the address, a BscScan link, and the proof behind a "How this was verified" toggle.
+  - **Checks:** typecheck is clean for the API and web, and 27/27 tests pass.
 - 2026-10-05 — **Welcome greeting while loading** (owner: "while loading it should greet 'Bimal Pradhan' with a small motivation quote"). Frontend only; 0 credits.
   - **Where it shows:** (1) a full-screen **splash** (`components/splash.tsx`) on every full page load, which dismisses itself with pure CSS after about 1.5 s plus a 0.55 s fade, so it can never get stuck or block clicks. (2) The route **loading screen** (`app/loading.tsx`) in the main area while a page loads, above the placeholder cards.
   - **Content** (`components/greeting.tsx`): the logo, "Welcome back,", the name with a cyan gradient, one quote picked at random in the browser after mount (so the server HTML and first client render match), and an indeterminate progress bar. The quotes are unattributed generic lines that I wrote, not attributed to real people.
