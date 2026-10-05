@@ -125,6 +125,11 @@ Starting with `pg_ctl` directly, as in the second line, runs the server detached
 
 Format: `YYYY-MM-DD — what changed — files — why/notes`
 
+- 2026-10-05 — **Welcome greeting while loading** (owner: "while loading it should greet 'Bimal Pradhan' with a small motivation quote"). Frontend only; 0 credits.
+  - **Where it shows:** (1) a full-screen **splash** (`components/splash.tsx`) on every full page load, which dismisses itself with pure CSS after about 1.5 s plus a 0.55 s fade, so it can never get stuck or block clicks. (2) The route **loading screen** (`app/loading.tsx`) in the main area while a page loads, above the placeholder cards.
+  - **Content** (`components/greeting.tsx`): the logo, "Welcome back,", the name with a cyan gradient, one quote picked at random in the browser after mount (so the server HTML and first client render match), and an indeterminate progress bar. The quotes are unattributed generic lines that I wrote, not attributed to real people.
+  - **To change the name or quotes,** edit only `apps/web/lib/site.ts` (`OWNER_NAME`, `QUOTES`).
+  - **Checks:** the splash is visible at 0.7 s and hidden at 3.3 s, and it does not intercept clicks afterwards. It also dismisses under `prefers-reduced-motion`. The loading screen was caught on a client-side page switch. 0 console errors, 0 sideways overflow on 11 pages × 2 sizes, typecheck clean, 27/27 tests.
 - 2026-10-05 — **UI restyled again to a second reference image** (a dark analytics dashboard: KPI card row, line chart, donut with value list, orange histogram, ranked table, world map). Frontend plus one new read-only API route; 0 Dune credits.
   - **Darker theme** (`app/globals.css`): near-black navy (page `#0a0f1c`, cards `#121a2c`, sidebar `#0d1322`), thinner borders, dimmer backdrop glow. Series colours were re-validated on these surfaces: all pass.
   - **Dashboard order** now follows the reference (`app/page.tsx`):

@@ -163,3 +163,25 @@ summary::-webkit-details-marker { display: none; }
 @keyframes live-pulse { 0% { box-shadow: 0 0 0 0 rgba(12, 163, 12, 0.55); } 70%, 100% { box-shadow: 0 0 0 6px rgba(12, 163, 12, 0); } }
 .live-dot { animation: live-pulse 2s infinite; }
 @media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
+
+/* ---------- Welcome / loading greeting ---------- */
+.splash {
+  position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center;
+  background:
+    radial-gradient(700px 420px at 80% 0%, rgba(20, 200, 235, 0.16), transparent 62%),
+    radial-gradient(640px 420px at 10% 100%, rgba(45, 105, 235, 0.20), transparent 64%),
+    var(--page);
+  animation: splash-out 0.55s ease 1.5s forwards;
+}
+@keyframes splash-out { to { opacity: 0; visibility: hidden; } }
+/* Reduced motion: still dismiss, just without the fade */
+@media (prefers-reduced-motion: reduce) { .splash { animation: splash-out 0.01s linear 1.5s forwards; } }
+
+.greet-logo { animation: greet-pop 0.7s cubic-bezier(0.2, 0.9, 0.3, 1.2) both; filter: drop-shadow(0 8px 24px rgba(31, 182, 233, 0.45)); }
+@keyframes greet-pop { from { opacity: 0; transform: scale(0.7); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .greet-logo { animation: none; } }
+
+.progress { width: 220px; height: 4px; border-radius: 999px; background: rgba(130, 160, 255, 0.16); overflow: hidden; }
+.progress > span { display: block; height: 100%; width: 40%; border-radius: 999px; background: linear-gradient(90deg, #1196c9, #5fd4f4); animation: progress-slide 1.3s ease-in-out infinite; }
+@keyframes progress-slide { 0% { transform: translateX(-110%); } 100% { transform: translateX(260%); } }
+@media (prefers-reduced-motion: reduce) { .progress > span { animation: none; width: 100%; } }
