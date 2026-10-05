@@ -1,22 +1,22 @@
 @import "tailwindcss";
 
 /* Navy dashboard theme. Series colours (blue IN, orange OUT, aqua net) were validated with the dataviz
-   validator against both navy surfaces below (#242a42 cards, #1d2236 page/sidebar): all checks pass.
+   validator against the dark navy surfaces below (#121a2c cards, #0d1322 sidebar): all checks pass.
    Cyan is UI chrome only (buttons, focus); it is never a data series. Text never wears a series colour. */
 :root {
   color-scheme: dark;
-  --page: #151929;
-  --sidebar: #1b2033;
-  --surface: #242a42;
-  --surface-2: #2b3251;
-  --surface-3: #363f66;
-  --border: rgba(160, 180, 255, 0.11);
-  --border-strong: rgba(160, 180, 255, 0.22);
+  --page: #0a0f1c;
+  --sidebar: #0d1322;
+  --surface: #121a2c;
+  --surface-2: #18223a;
+  --surface-3: #212d4c;
+  --border: rgba(130, 160, 255, 0.10);
+  --border-strong: rgba(130, 160, 255, 0.20);
   --text: #ffffff;
-  --text-2: #c9cee3;
-  --muted: #8f96b4;
-  --grid: #343c5c;
-  --axis: #444d73;
+  --text-2: #c4cae0;
+  --muted: #8a93b5;
+  --grid: #1f2a44;
+  --axis: #2c3858;
   --s1: #3987e5;
   --s2: #d95926;
   --s3: #199e70;
@@ -52,9 +52,9 @@ html { scrollbar-color: var(--axis) var(--page); }
 /* Deep navy with soft cyan and blue light, echoing the reference's flowing backdrop */
 body {
   background:
-    radial-gradient(900px 520px at 100% -8%, rgba(20, 200, 235, 0.20), transparent 62%),
-    radial-gradient(760px 520px at -6% 8%, rgba(45, 105, 235, 0.22), transparent 64%),
-    radial-gradient(900px 600px at 55% 115%, rgba(25, 120, 220, 0.14), transparent 70%),
+    radial-gradient(900px 520px at 100% -8%, rgba(20, 200, 235, 0.10), transparent 62%),
+    radial-gradient(760px 520px at -6% 8%, rgba(45, 105, 235, 0.13), transparent 64%),
+    radial-gradient(900px 600px at 55% 115%, rgba(25, 120, 220, 0.08), transparent 70%),
     var(--page);
   background-attachment: fixed;
   color: var(--text);
@@ -74,7 +74,7 @@ h1, h2 { letter-spacing: -0.015em; }
 
 /* ---------- Surfaces ---------- */
 .card {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0) 70px), var(--surface);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0) 60px), var(--surface);
   border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 12px 28px -14px rgba(5, 8, 24, 0.75);

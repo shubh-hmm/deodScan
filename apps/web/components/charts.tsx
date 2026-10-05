@@ -1,19 +1,18 @@
 'use client';
 
 import {
-  Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import { useId } from 'react';
+import { SERIES } from '@/lib/colors';
 import { compactNum } from '@/lib/format';
 
-// Series colours: categorical slots 1-3 validated for the dark surface (blue / orange / aqua).
 // Text never wears a series colour; marks beside the text carry identity.
-export const SERIES = { in: '#3987e5', out: '#d95926', net: '#199e70' } as const;
-const SURFACE = '#242a42';
-const GRID = '#343c5c';
-const AXIS = '#444d73';
-const MUTED = '#8f96b4';
-const INK2 = '#c9cee3';
+const SURFACE = '#121a2c';
+const GRID = '#1f2a44';
+const AXIS = '#2c3858';
+const MUTED = '#8a93b5';
+const INK2 = '#c4cae0';
 
 const full = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
 
@@ -181,6 +180,80 @@ export function FlowArea({
         <Area type="monotone" dataKey="b" name={names[1]} stroke={SERIES.out} strokeWidth={2} fill={`url(#out-${gid})`}
           dot={dotFor(SERIES.out, data.length)} activeDot={activeDot(SERIES.out)} isAnimationActive={false} />
       </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
+export interface Slice { name: string; value: number; color: string }
+
+function SliceTooltip({ active, payload, unit }: any) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0];
+  return (
+    <div className={tipClass}>
+      <Row color={d.payload.color} name={d.name} value={`${full.format(d.value)} ${unit}`} />
+      <div className="mt-1 text-muted">{(d.payload.pct as number).toFixed(1)}% of total</div>
+    </div>
+  );
+}
+
+/**
+ * Donut for a part-to-whole at a glance (3 slices here). Slices are separated by a 2px surface gap; the centre shows
+ * the total, and the page lists every slice with its value and share next to it, so nothing depends on colour.
+ */
+export function Donut({ slices, centerLabel, centerValue, unit = 'DEOD', height = 180 }: {
+  slices: Slice[]; centerLabel: string; centerValue: string; unit?: string; height?: number;
+}) {
+  const total = slices.reduce((a, x) => a + x.value, 0);
+  if (!(total > 0)) return <div className="flex items-center justify-center text-sm text-muted" style={{ height }}>No activity in this period.</div>;
+  const data = slices.filter((x) => x.value > 0).map((x) => ({ ...x, pct: (x.value / total) * 100 }));
+  return (
+    <div className="relative" style={{ height }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart>
+          <Tooltip content={<SliceTooltip unit={unit} />} />
+          <Pie data={data} dataKey="value" nameKey="name" innerRadius="64%" outerRadius="94%" startAngle={90} endAngle={-270}
+            stroke={SURFACE} strokeWidth={2} isAnimationActive={false}>
+            {data.map((d) => <Cell key={d.name} fill={d.color} />)}
+          </Pie>
+        </PieChart>
+      </ResponsiveContainer>
+      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+        <div className="text-[11px] text-muted">{centerLabel}</div>
+        <div className="num text-xl font-semibold text-ink">{centerValue}</div>
+      </div>
+    </div>
+  );
+}
+
+export interface HourPoint { hour: number; inflows: number; outflows: number }
+
+function HourTooltip({ active, payload }: any) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0].payload as HourPoint;
+  const hh = String(p.hour).padStart(2, '0');
+  return (
+    <div className={tipClass}>
+      <div className="mb-1.5 text-muted">{hh}:00–{hh}:59 UTC</div>
+      <Row color={SERIES.in} name="IN transfers" value={full.format(p.inflows)} />
+      <Row color={SERIES.out} name="OUT transfers" value={full.format(p.outflows)} />
+    </div>
+  );
+}
+
+/** Stacked IN / OUT transfer counts by UTC hour of day: when exchange activity happens. 2px surface gap between segments. */
+export function HourBars({ data, height = 230 }: { data: HourPoint[]; height?: number }) {
+  if (!data.some((d) => d.inflows + d.outflows > 0)) return <div className="flex items-center justify-center text-sm text-muted" style={{ height }}>No activity in this period.</div>;
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <BarChart data={data} barCategoryGap="18%" margin={{ top: 8, right: 10, bottom: 0, left: 4 }}>
+        <CartesianGrid vertical={false} stroke={GRID} />
+        <XAxis dataKey="hour" tickFormatter={(h) => String(h).padStart(2, '0')} stroke={AXIS} tick={axisTick} tickLine={false} interval={1} />
+        <YAxis tickFormatter={compactNum} stroke={AXIS} tick={axisTick} tickLine={false} axisLine={false} width={40} allowDecimals={false} />
+        <Tooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} content={<HourTooltip />} />
+        <Bar dataKey="inflows" stackId="h" fill={SERIES.in} stroke={SURFACE} strokeWidth={2} maxBarSize={20} isAnimationActive={false} />
+        <Bar dataKey="outflows" stackId="h" fill={SERIES.out} stroke={SURFACE} strokeWidth={2} radius={[4, 4, 0, 0]} maxBarSize={20} isAnimationActive={false} />
+      </BarChart>
     </ResponsiveContainer>
   );
 }

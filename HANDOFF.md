@@ -125,6 +125,21 @@ Starting with `pg_ctl` directly, as in the second line, runs the server detached
 
 Format: `YYYY-MM-DD — what changed — files — why/notes`
 
+- 2026-10-05 — **UI restyled again to a second reference image** (a dark analytics dashboard: KPI card row, line chart, donut with value list, orange histogram, ranked table, world map). Frontend plus one new read-only API route; 0 Dune credits.
+  - **Darker theme** (`app/globals.css`): near-black navy (page `#0a0f1c`, cards `#121a2c`, sidebar `#0d1322`), thinner borders, dimmer backdrop glow. Series colours were re-validated on these surfaces: all pass.
+  - **Dashboard order** now follows the reference (`app/page.tsx`):
+    1. Six KPI cards (net flow, inflow, outflow, unique wallets, transfers, PancakeSwap volume), each with its **change versus the previous period of equal length**. The text carries the direction (▲/▼), never colour.
+       - Net flow shows the previous period's value instead of a percentage, because a percentage change on a signed number misleads.
+       - "All time" has no previous period, so no comparison is shown.
+       - PancakeSwap says "No activity in previous period" when the window falls before swap data starts (2026-09-25).
+    2. The main gradient area chart plus the cumulative net flow chart.
+    3. Two donuts, **inflow by exchange** (blue shades) and **outflow by exchange** (orange shades), each with a value and percentage list, around a **transfers-by-hour-of-day histogram**: stacked IN (blue) / OUT (orange), UTC.
+    4. Exchange cards, then recent activity next to a **Top wallets** table (top 8 by volume), then a PancakeSwap card.
+  - **New API route** `GET /api/flows/hourly` (`hourlyActivity` in `packages/analytics`): exchange transfer counts by UTC hour, a plain DB query. The hour totals were checked against `/api/overview` (549 IN / 131 OUT for 30d: exact match). Documented in the README.
+  - **Colour rules:** blue always means inflow and orange always means outflow, so the share donuts use blue or orange steps (both ramps validated as ordinal), never a new hue per exchange. Donut slices have a 2px gap and every slice is listed with its value. A donut is within the dataviz guidance (≤6 slices, numbers beside it).
+  - **Not copied: the world map.** There is no geographic data, and it must not be invented.
+  - **Gotcha (Next.js):** a value exported from a `'use client'` file (an object or array) arrives in a server component as a *reference*, not the real value. `RAMPS[kind].length` was `undefined` and the page crashed (the new `error.tsx` page showed). The chart colours now live in the plain module `lib/colors.ts`, which both server and client code import. Keep shared constants out of `'use client'` files.
+  - **Checks:** typecheck is clean for the API and web, and 27/27 tests pass. Headless Edge: 11 pages × phone and desktop have no sideways overflow and 0 console errors. Hover tooltips work on both donuts, the histogram and both area charts. Screenshots reviewed.
 - 2026-10-05 — **UI restyle to match the owner's reference image** (an "ArBitrage"-style crypto dashboard: navy/slate panels, cyan accents, a metric strip, a gradient area chart). Frontend only; 0 credits.
   - **Theme** (`app/globals.css`): navy palette (page `#151929`, cards `#242a42`, sidebar `#1b2033`) with soft cyan/blue backdrop glows, glossy cyan buttons (`.btn`), cyan-blue gradient for the active tab and menu item, zebra table rows with a cyan hover, and circular gradient icon badges (`.badge-icon`).
   - **Header** (`components/price-ticker.tsx`): a single strip of icon metrics: price, 24h change, 24h volume, market cap, then Live/CoinGecko. The sidebar gets a "BNB Chain · read-only monitor" card and a blue-gradient active row.

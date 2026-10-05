@@ -127,6 +127,25 @@ export async function flowSeries(db: pg.Pool, w: Window, exchange?: string) {
   return rows;
 }
 
+/** Exchange transfers per UTC hour of day (0-23) in the window, split IN / OUT. Hours with no activity are returned as zeros. */
+export async function hourlyActivity(db: pg.Pool, w: Window) {
+  const { rows } = await db.query(
+    `SELECT h.hour,
+            coalesce(f.inflows, 0)::int  AS inflows,
+            coalesce(f.outflows, 0)::int AS outflows
+     FROM generate_series(0, 23) AS h(hour)
+     LEFT JOIN (
+       SELECT extract(hour FROM block_time AT TIME ZONE 'UTC')::int AS hour,
+              count(*) FILTER (WHERE direction = 'IN')  AS inflows,
+              count(*) FILTER (WHERE direction = 'OUT') AS outflows
+       FROM exchange_flows WHERE block_time >= $1 AND block_time < $2 GROUP BY 1
+     ) f USING (hour)
+     ORDER BY h.hour`,
+    [lo(w), w.to],
+  );
+  return rows as { hour: number; inflows: number; outflows: number }[];
+}
+
 export const FlowFilter = z.object({
   exchange: z.string().regex(/^[a-z0-9_]+$/).optional(),
   direction: z.enum(['IN', 'OUT']).optional(),

@@ -18,8 +18,8 @@ export function Card({ title, children, actions, className = '' }: { title?: Rea
 }
 
 /** Stat tile: label, value, optional sub-line and a decorative trend (the numbers carry the meaning). */
-export function Stat({ label, value, sub, title, tone, trend, icon }: {
-  label: string; value: ReactNode; sub?: ReactNode; title?: string; tone?: 'in' | 'out'; trend?: ReactNode; icon?: ReactNode;
+export function Stat({ label, value, sub, title, tone, trend, icon, delta }: {
+  label: string; value: ReactNode; sub?: ReactNode; title?: string; tone?: 'in' | 'out'; trend?: ReactNode; icon?: ReactNode; delta?: string;
 }) {
   return (
     <div className="card tile rise min-w-0 px-4 pb-3 pt-3.5" title={title}>
@@ -31,6 +31,7 @@ export function Stat({ label, value, sub, title, tone, trend, icon }: {
         </div>
       </div>
       {sub && <div className="mt-1.5 text-xs leading-snug text-ink-2">{sub}</div>}
+      {delta && <div className={`num text-[11px] leading-snug text-muted ${sub ? 'mt-0.5' : 'mt-1.5'}`}>{delta}</div>}
       {trend && <div className="-mx-1 mt-2 h-9" aria-hidden="true">{trend}</div>}
     </div>
   );

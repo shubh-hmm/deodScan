@@ -100,6 +100,11 @@ app.get('/api/flows/series', async (req) => {
   return { window: w, rows: await A.flowSeries(db, w, exchange) };
 });
 
+app.get('/api/flows/hourly', async (req) => {
+  const w = windowOf(req.query);
+  return { window: w, rows: await A.hourlyActivity(db, w) };
+});
+
 app.get('/api/flows', async (req, reply) => {
   const w = windowOf(req.query);
   const f = parse(A.FlowFilter.passthrough(), req.query);

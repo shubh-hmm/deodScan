@@ -109,6 +109,7 @@ These read endpoints take `range=1h|6h|24h|7d|30d|all|custom` (with `from` and `
 | `/api/overview` | Dashboard summary |
 | `/api/flows` | Exchange flows. Filters: `exchange`, `direction`, `wallet`, `min`, `max`, `sort`. CSV. |
 | `/api/flows/series` | Flow totals per hour or day |
+| `/api/flows/hourly` | Exchange transfer counts (IN / OUT) by UTC hour of day, 0–23 |
 | `/api/exchanges/:slug` | One exchange's stats, top wallets and history |
 | `/api/pancakeswap` | Pool stats. `version=2\|3\|all` |
 | `/api/swaps` | Swap list. Filters: `version`, `side`, `wallet`, `min`, `max`. CSV. |
