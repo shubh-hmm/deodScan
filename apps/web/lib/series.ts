@@ -1,4 +1,4 @@
-import type { PairPoint } from '@/components/charts';
+import type { CumPoint, PairPoint } from '@/components/charts';
 
 /** Sums rows per bucket into {a, b} and fills empty buckets between window start and end with zeros. */
 export function pairSeries<T extends { bucket: string }>(
@@ -23,4 +23,13 @@ export function pairSeries<T extends { bucket: string }>(
   const out: PairPoint[] = [];
   for (let t = start; t <= end; t += step) out.push(acc.get(t) ?? { bucket: new Date(t).toISOString(), a: 0, b: 0 });
   return out;
+}
+
+/** Adds a running total of (a − b) from the start of the window. Used for the cumulative net flow chart. */
+export function withCumulative(points: PairPoint[]): CumPoint[] {
+  let run = 0;
+  return points.map((p) => {
+    run += p.a - p.b;
+    return { ...p, cum: run };
+  });
 }

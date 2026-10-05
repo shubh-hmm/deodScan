@@ -50,3 +50,21 @@ export const VENUE_NAMES: Record<string, string> = {
   pancakeswap_v2: 'PancakeSwap V2', pancakeswap_v3: 'PancakeSwap V3',
 };
 export const venueName = (v: string) => VENUE_NAMES[v] ?? v;
+
+/**
+ * Compact number formatted by hand. Intl compact output differs between Node and browsers ("10.8M" vs "10.80M"),
+ * which breaks hydration in client components; this is identical everywhere.
+ */
+export function compactNum(v: number): string {
+  const units: [number, string][] = [[1e12, 'T'], [1e9, 'B'], [1e6, 'M'], [1e3, 'K']];
+  const abs = Math.abs(v);
+  for (const [size, suffix] of units) {
+    if (abs >= size) {
+      const x = v / size;
+      const digits = Math.abs(x) >= 100 ? 0 : Math.abs(x) >= 10 ? 1 : 2;
+      const t = x.toFixed(digits);
+      return `${t.includes('.') ? t.replace(/\.?0+$/, '') : t}${suffix}`;
+    }
+  }
+  return abs >= 100 ? v.toFixed(0) : String(Number(v.toFixed(2)));
+}

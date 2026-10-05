@@ -1,6 +1,6 @@
 import { api, clean, flat, labelMap, meta, type SearchParams } from '@/lib/api';
 import { fmtTime } from '@/lib/format';
-import { Addr, Card, Deod, Dir, Empty, Note, PageHeader, Tx } from '@/components/ui';
+import { Addr, barStyle, Card, Deod, Dir, Empty, Note, PageHeader, Tx } from '@/components/ui';
 import { Field, FilterForm, Pager, Select } from '@/components/filters';
 import { RangePicker, rangeParams, windowLabel } from '@/components/range';
 
@@ -13,14 +13,15 @@ export default async function Flows({ searchParams }: { searchParams: SearchPara
   const filters = { exchange: p.exchange, direction: p.direction, wallet: p.wallet, min: p.min, max: p.max, sort: p.sort };
   const [m, d] = await Promise.all([meta(), api('/api/flows', { ...r, ...filters, limit: String(LIMIT), offset: p.offset })]);
   const labels = labelMap(m);
+  const maxAmount = Math.max(0, ...d.rows.map((f: any) => Number(f.amount)));
 
   return (
     <>
-      <PageHeader title="Exchange flows" subtitle={`${windowLabel(d.window)} · DEOD transfers into (IN) and out of (OUT) monitored exchange addresses`}>
+      <PageHeader eyebrow="Explore" title="Exchange flows" subtitle={`${windowLabel(d.window)} · DEOD transfers into (IN) and out of (OUT) monitored exchange addresses`}>
         <RangePicker path="/flows" params={p} />
       </PageHeader>
       <Card title={`${d.total.toLocaleString('en-US')} transfers`}
-        actions={<a className="link" href={`/api-export/flows?${new URLSearchParams(clean({ ...r, ...filters }))}`}>Export CSV (up to 10,000 rows)</a>}>
+        actions={<a className="link" href={`/api-export/flows?${new URLSearchParams(clean({ ...r, ...filters }))}`}>Export CSV</a>}>
         <FilterForm action="/flows" params={p}>
           <Field label="Exchange"><Select name="exchange" value={p.exchange} options={[['', 'All'], ...m.exchanges.map((e) => [e.slug, e.name] as [string, string])]} /></Field>
           <Field label="Direction"><Select name="direction" value={p.direction} options={[['', 'IN + OUT'], ['IN', 'IN (to exchange)'], ['OUT', 'OUT (from exchange)']]} /></Field>
@@ -41,7 +42,7 @@ export default async function Flows({ searchParams }: { searchParams: SearchPara
                     <td><Dir d={f.direction} /></td>
                     <td><Addr a={f.direction === 'IN' ? f.wallet_address : f.exchange_address} labels={labels} /></td>
                     <td><Addr a={f.direction === 'IN' ? f.exchange_address : f.wallet_address} labels={labels} /></td>
-                    <td className="r"><Deod v={f.amount} /></td>
+                    <td className="r bar-cell" style={barStyle(f.amount, maxAmount, f.direction === 'IN' ? 's1' : 's2')}><Deod v={f.amount} /></td>
                     <td className="r num text-ink-2">{f.block_number}</td>
                     <td><Tx hash={f.tx_hash} explorer={m.chain.explorer_tx_url} /></td>
                   </tr>

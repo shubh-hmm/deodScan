@@ -65,36 +65,41 @@ export function PriceTicker({ initial }: { initial: PriceData | null }) {
   const chTone = ch === null ? 'text-muted' : ch >= 0 ? 'text-good' : 'text-critical';
 
   return (
-    <div className="flex min-w-0 items-center gap-x-4 gap-y-1" aria-live="off">
-      <div className="flex items-baseline gap-2">
-        <span className="text-xs font-semibold tracking-wide text-ink-2">DEOD</span>
-        <span className="num text-lg font-semibold text-ink" title="DEOD / USD">{p ? price(p.usd) : '—'}</span>
-        {ch !== null && (
-          <span className={`num text-xs font-medium ${chTone}`} title="Change over the last 24 hours">
-            {ch >= 0 ? '▲' : '▼'} {Math.abs(ch).toFixed(2)}%
-          </span>
-        )}
+    <div className="flex min-w-0 items-center gap-x-5 gap-y-1" aria-live="off">
+      <div className="flex items-center gap-3">
+        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-3 text-[10px] font-bold tracking-wide text-ink-2">DEOD</div>
+        <div className="leading-tight">
+          <div className="flex items-baseline gap-2">
+            <span className="num text-xl font-semibold tracking-tight text-ink" title="DEOD / USD">{p ? price(p.usd) : '—'}</span>
+            {ch !== null && (
+              <span className={`num rounded-md bg-surface-2 px-1.5 py-0.5 text-xs font-semibold ${chTone}`} title="Change over the last 24 hours">
+                {ch >= 0 ? '▲' : '▼'} {Math.abs(ch).toFixed(2)}%
+              </span>
+            )}
+          </div>
+          <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted">
+            <span className={`h-1.5 w-1.5 rounded-full ${delayed ? 'bg-warning' : 'live-dot bg-good'}`} />
+            <span title={p?.updatedAt ? `CoinGecko updated the price at ${p.updatedAt}` : undefined}>
+              {delayed ? <span className="text-warning">Delayed · last {utcClock(p?.updatedAt ?? null)}</span> : <>Live · {utcClock(p?.updatedAt ?? null)}</>}
+            </span>
+          </div>
+        </div>
       </div>
       {p?.volume24h != null && (
-        <div className="hidden text-xs leading-tight lg:block">
+        <div className="hidden border-l border-line pl-5 text-xs leading-tight lg:block">
           <div className="text-muted">24h volume</div>
-          <div className="num text-ink-2">{compactUsd(p.volume24h)}</div>
+          <div className="num mt-0.5 text-sm font-medium text-ink">{compactUsd(p.volume24h)}</div>
         </div>
       )}
       {p?.marketCap != null && (
-        <div className="hidden text-xs leading-tight xl:block">
+        <div className="hidden border-l border-line pl-5 text-xs leading-tight xl:block">
           <div className="text-muted">Market cap</div>
-          <div className="num text-ink-2">{compactUsd(p.marketCap)}</div>
+          <div className="num mt-0.5 text-sm font-medium text-ink">{compactUsd(p.marketCap)}</div>
         </div>
       )}
-      <div className="hidden text-[11px] leading-tight text-muted sm:block">
-        <a className="link" href={COINGECKO_URL} target="_blank" rel="noreferrer">CoinGecko</a>
-        <div title={p?.updatedAt ? `CoinGecko updated the price at ${p.updatedAt}` : undefined}>
-          {delayed
-            ? <span className="text-warning">Delayed · last {utcClock(p?.updatedAt ?? null)}</span>
-            : <>Live · {utcClock(p?.updatedAt ?? null)}</>}
-        </div>
-      </div>
+      <a className="link hidden border-l border-line pl-5 text-[11px] sm:block" href={COINGECKO_URL} target="_blank" rel="noreferrer">
+        Price by CoinGecko
+      </a>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { api, clean, flat, labelMap, meta, type SearchParams } from '@/lib/api';
 import { fmtInt, fmtTime } from '@/lib/format';
-import { Addr, Card, Deod, Empty, Note, PageHeader } from '@/components/ui';
+import { Addr, barStyle, Card, Deod, Empty, Note, PageHeader } from '@/components/ui';
 import { Field, FilterForm, Select } from '@/components/filters';
 import { RangePicker, rangeParams, windowLabel } from '@/components/range';
 
@@ -19,6 +19,7 @@ export default async function Wallets({ searchParams }: { searchParams: SearchPa
   const q = { source: p.source ?? 'all', sort: p.sort ?? 'volume', minVolume: p.minVolume, minTx: p.minTx, limit: p.limit ?? '100' };
   const [m, d] = await Promise.all([meta(), api('/api/wallets/top', { ...r, ...q })]);
   const labels = labelMap(m);
+  const maxVolume = Math.max(0, ...d.rows.map((w: any) => Number(w.volume)));
   const sources: [string, string][] = [
     ['all', 'All monitored activity'], ...m.exchanges.map((e) => [e.slug, e.name] as [string, string]),
     ['pancakeswap', 'PancakeSwap (V2 + V3)'], ['pancakeswap_v2', 'PancakeSwap V2'], ['pancakeswap_v3', 'PancakeSwap V3'],
@@ -26,7 +27,7 @@ export default async function Wallets({ searchParams }: { searchParams: SearchPa
 
   return (
     <>
-      <PageHeader title="Top wallets" subtitle={`${windowLabel(d.window)} · ranked by ${SORTS.find(([k]) => k === q.sort)?.[1].toLowerCase()}`}>
+      <PageHeader eyebrow="Explore" title="Top wallets" subtitle={`${windowLabel(d.window)} · ranked by ${SORTS.find(([k]) => k === q.sort)?.[1].toLowerCase()}`}>
         <RangePicker path="/wallets" params={{ range: r.range, ...p }} />
       </PageHeader>
       <Card title={`${d.rows.length} wallets`}
@@ -51,7 +52,7 @@ export default async function Wallets({ searchParams }: { searchParams: SearchPa
                   <tr key={w.wallet_address}>
                     <td className="text-muted">{i + 1}</td>
                     <td><Addr a={w.wallet_address} labels={labels} /></td>
-                    <td className="r"><Deod v={w.volume} /></td>
+                    <td className="r bar-cell" style={barStyle(w.volume, maxVolume)}><Deod v={w.volume} /></td>
                     <td className="r num">{fmtInt(w.transactions)}</td>
                     <td className="r"><Deod v={w.largest} /></td>
                     <td className="r"><Deod v={w.sent_to_exchanges} /></td>

@@ -125,6 +125,25 @@ Starting with `pg_ctl` directly, as in the second line, runs the server detached
 
 Format: `YYYY-MM-DD — what changed — files — why/notes`
 
+- 2026-10-05 — **UI redesign** (owner: "improve the UI, make it more professional and amazing"). Frontend only; no API, data or Dune changes, 0 credits.
+  - **Design system** (`app/globals.css`, `components/ui.tsx`, `components/icons.tsx`):
+    - Deeper page background with a soft glow, rounded cards with depth, uppercase table headers, pill badges for IN/OUT/BUY/SELL, and a brand mark and nav icons in the sidebar.
+    - The time range is now a segmented control (1H…All) with the custom UTC range in a "Custom" popover.
+    - The filter bar has a primary "Apply" button. Pages have small "eyebrow" labels.
+    - Cards and tiles fade in, respecting reduced-motion.
+  - **Dashboard** (`app/page.tsx`):
+    - A hero figure (net exchange flow, 56px) with an IN/OUT split bar, next to a new **cumulative net flow** chart (`CumulativeArea`).
+    - Stat tiles now have trend lines (`Sparkline`).
+    - A new per-exchange comparison (`components/flow-bars.tsx`: paired IN/OUT bars on one scale), the IN/OUT bar chart at 430px, and a PancakeSwap card with the last price and a buy/sell split.
+  - **Other pages:** magnitude bars behind amounts in the wallet, flow and exchange tables. PancakeSwap has a buy/sell split card and a segmented version switch. A long wallet address no longer overflows on phones.
+  - **Charts** follow the dataviz skill: validated colours (blue IN, orange OUT, aqua net; checked with `validate_palette.js` against the dark surface: all pass, CVD ΔE 9.4), bars ≤24px with a 4px rounded top, 2px lines, a 10% area wash, a crosshair and tooltips with line-keys, one series with no legend box, and numbers always shown beside colour.
+  - **Stale text fixed:** the Flows/Swaps pages said "Export CSV (up to 10,000 rows)" (the cap was removed on 2026-10-03). The Status page described the old hourly sync.
+  - **Gotchas:**
+    - Never use `Intl` compact formatting in client components (hydration mismatch). Use `compactNum` in `lib/format.ts`. It had a trailing-zero bug (100K → "1K") that I caught with a quick test and fixed.
+    - Table header "stickiness" applies inside the card's scroll box.
+    - In dev mode the Next "N" button overlaps the bottom of the sidebar. It is dev-only.
+  - **Checks:** typecheck is clean for the API and web, and 27/27 tests pass. Headless Edge with phone and desktop emulation: 11 pages × 2 sizes have no sideways overflow and 0 console errors. Interaction test: both chart tooltips work, the Custom popover opens, and the active menu item is highlighted. Screenshots reviewed.
+  - **Not done:** there is no light theme (dark only), and the Flows, Swaps, Status and wallet-profile pages got the shared styling only. They were not individually redesigned.
 - 2026-10-05 — Owner asked "everything is working?". It was not: the PC had been shut down after ~13:07 UTC on 2026-10-03, so Postgres, API, web and worker were all stopped, and the days 2026-10-03 and 2026-10-04 had not been synced.
   - Restarted Postgres with `pg_ctl` (automatic crash recovery worked; data intact: 5,714 transfers, 5,818 swaps, 1,233 wallets), then the API, web and worker as detached processes. No port conflicts.
   - The worker caught up both missed days by itself: transfers 2026-10-03 +8 (5 already stored), 2026-10-04 +12; swaps 2026-10-03 +241 (57 already stored), 2026-10-04 +169. 0 rejected, ~0.31 credits.

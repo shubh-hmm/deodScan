@@ -3,17 +3,17 @@ import type { ReactNode } from 'react';
 /** GET form for combinable filters; keeps the time range. All conditions are ANDed by the API. */
 export function FilterForm({ action, params, children }: { action: string; params: Record<string, string | undefined>; children: ReactNode }) {
   return (
-    <form action={action} className="flex flex-wrap items-end gap-3 border-b border-line px-4 py-3 text-xs text-ink-2">
+    <form action={action} className="flex flex-wrap items-end gap-3 border-b border-line bg-surface-2/30 px-4 py-3.5 text-xs text-ink-2">
       {['range', 'from', 'to'].map((k) => (params[k] ? <input key={k} type="hidden" name={k} value={params[k]} /> : null))}
       {children}
-      <button className="rounded-md border border-line bg-surface-2 px-3 py-1.5 text-ink hover:brightness-125">Apply filters</button>
+      <button className="rounded-lg bg-s1 px-4 py-[7px] text-[13px] font-semibold text-white hover:brightness-110">Apply filters</button>
       <a href={`${action}?range=${params.range ?? '24h'}`} className="px-1 py-1.5 text-muted hover:text-ink">Reset</a>
     </form>
   );
 }
 
 export function Field({ label, children }: { label: string; children: ReactNode }) {
-  return <label className="flex flex-col gap-1"><span>{label}</span>{children}</label>;
+  return <label className="flex flex-col gap-1.5"><span className="text-[11px] font-medium text-muted">{label}</span>{children}</label>;
 }
 
 export function Select({ name, value, options }: { name: string; value?: string; options: [string, string][] }) {

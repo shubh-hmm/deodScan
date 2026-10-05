@@ -23,7 +23,7 @@ export default async function Wallet({ params, searchParams }: { params: Promise
   return (
     <>
       <PageHeader
-        title={<span className="font-mono text-lg">{address}</span>}
+        title={<span className="break-all font-mono text-lg leading-snug">{address}</span>}
         subtitle={<>
           {label ? <span className="mr-2 rounded bg-surface-2 px-1.5 py-0.5 text-xs">{label}</span> : <span className="mr-2 text-xs text-muted">No configured label</span>}
           <a className="link" href={`${m.chain.explorer_address_url}${address}`} target="_blank" rel="noreferrer">View on BscScan</a>

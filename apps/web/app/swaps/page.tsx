@@ -15,11 +15,11 @@ export default async function Swaps({ searchParams }: { searchParams: SearchPara
 
   return (
     <>
-      <PageHeader title="PancakeSwap swaps" subtitle={`${windowLabel(d.window)} · DEOD swaps in the monitored V2 and V3 pools`}>
+      <PageHeader eyebrow="Explore" title="PancakeSwap swaps" subtitle={`${windowLabel(d.window)} · DEOD swaps in the monitored V2 and V3 pools`}>
         <RangePicker path="/swaps" params={p} />
       </PageHeader>
       <Card title={`${d.total.toLocaleString('en-US')} swaps`}
-        actions={<a className="link" href={`/api-export/swaps?${new URLSearchParams(clean({ ...r, ...filters }))}`}>Export CSV (up to 10,000 rows)</a>}>
+        actions={<a className="link" href={`/api-export/swaps?${new URLSearchParams(clean({ ...r, ...filters }))}`}>Export CSV</a>}>
         <FilterForm action="/swaps" params={p}>
           <Field label="Version"><Select name="version" value={p.version} options={[['all', 'V2 + V3'], ['2', 'V2'], ['3', 'V3']]} /></Field>
           <Field label="Side"><Select name="side" value={p.side} options={[['', 'BUY + SELL'], ['BUY', 'BUY'], ['SELL', 'SELL']]} /></Field>

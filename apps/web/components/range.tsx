@@ -4,34 +4,35 @@ const RANGES = [
   ['1h', '1H'], ['6h', '6H'], ['24h', '24H'], ['7d', '7D'], ['30d', '30D'], ['all', 'All'],
 ] as const;
 
-/** Preset time ranges as links (preserving other params) plus a custom UTC date range. */
+/** Preset time ranges as a segmented control (links preserve other params), plus a custom UTC range in a popover. */
 export function RangePicker({ path, params }: { path: string; params: Record<string, string | undefined> }) {
   const current = params.range ?? '24h';
+  const keep = (k: string) => !['range', 'from', 'to', 'offset'].includes(k);
   const href = (range: string) => {
     const q = new URLSearchParams();
-    for (const [k, v] of Object.entries(params)) if (v && !['range', 'from', 'to', 'offset'].includes(k)) q.set(k, v);
+    for (const [k, v] of Object.entries(params)) if (v && keep(k)) q.set(k, v);
     q.set('range', range);
     return `${path}?${q}`;
   };
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <div className="flex overflow-hidden rounded-md border border-line text-xs">
-        {RANGES.map(([k, label]) => (
-          <Link key={k} href={href(k)}
-            className={`px-3 py-1.5 ${current === k ? 'bg-surface-2 font-semibold text-ink' : 'text-ink-2 hover:bg-surface-2'}`}>
-            {label}
-          </Link>
-        ))}
-      </div>
-      <form action={path} className="flex items-center gap-1.5 text-xs text-ink-2">
-        {Object.entries(params).map(([k, v]) =>
-          v && !['range', 'from', 'to', 'offset'].includes(k) ? <input key={k} type="hidden" name={k} value={v} /> : null)}
-        <input type="hidden" name="range" value="custom" />
-        <input type="date" name="from" defaultValue={params.from?.slice(0, 10)} required aria-label="From (UTC)" />
-        <span>→</span>
-        <input type="date" name="to" defaultValue={params.to?.slice(0, 10)} aria-label="To (UTC)" />
-        <button className={`rounded-md border border-line px-2 py-1 ${current === 'custom' ? 'bg-surface-2 text-ink' : 'hover:bg-surface-2'}`}>Apply</button>
-      </form>
+    <div className="seg" role="group" aria-label="Time range">
+      {RANGES.map(([k, label]) => (
+        <Link key={k} href={href(k)} aria-current={current === k ? 'true' : undefined}>{label}</Link>
+      ))}
+      <details className="relative">
+        <summary className={current === 'custom' ? 'on' : ''}>Custom</summary>
+        <form action={path} className="card absolute right-0 top-[calc(100%+8px)] z-30 flex w-72 flex-col gap-3 p-4 text-xs text-ink-2">
+          {Object.entries(params).map(([k, v]) => (v && keep(k) ? <input key={k} type="hidden" name={k} value={v} /> : null))}
+          <input type="hidden" name="range" value="custom" />
+          <label className="flex flex-col gap-1">From (UTC)
+            <input type="date" name="from" defaultValue={params.from?.slice(0, 10)} required />
+          </label>
+          <label className="flex flex-col gap-1">To (UTC)
+            <input type="date" name="to" defaultValue={params.to?.slice(0, 10)} />
+          </label>
+          <button className="rounded-lg bg-s1 px-3 py-2 text-[13px] font-semibold text-white hover:brightness-110">Apply range</button>
+        </form>
+      </details>
     </div>
   );
 }

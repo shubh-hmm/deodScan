@@ -2,12 +2,14 @@ import Link from 'next/link';
 import { api, clean, flat, labelMap, meta, type SearchParams } from '@/lib/api';
 import { fmtDeod, fmtInt, fmtTime } from '@/lib/format';
 import { pairSeries } from '@/lib/series';
-import { Addr, Card, Deod, Dir, Empty, Note, PageHeader, Stat, Tx } from '@/components/ui';
+import { Addr, barStyle, Card, Deod, Dir, Empty, Note, PageHeader, Stat, Tx } from '@/components/ui';
 import { PairBars } from '@/components/charts';
 import { RangePicker, rangeParams, windowLabel } from '@/components/range';
 
 function TopTable({ rows, labels, kind }: { rows: any[]; labels: Map<string, string>; kind: 'Sender' | 'Receiver' }) {
   if (!rows.length) return <Empty />;
+  const max = Math.max(0, ...rows.map((w) => Number(w.total)));
+  const tone = kind === 'Sender' ? 's1' : 's2';
   return (
     <div className="overflow-x-auto">
       <table className="data">
@@ -17,7 +19,7 @@ function TopTable({ rows, labels, kind }: { rows: any[]; labels: Map<string, str
             <tr key={w.wallet_address}>
               <td className="text-muted">{i + 1}</td>
               <td><Addr a={w.wallet_address} labels={labels} /></td>
-              <td className="r"><Deod v={w.total} /></td>
+              <td className="r bar-cell" style={barStyle(w.total, max, tone)}><Deod v={w.total} /></td>
               <td className="r num">{fmtInt(w.transfers)}</td>
               <td className="r"><Deod v={w.largest} /></td>
               <td className="num text-ink-2">{fmtTime(w.first_seen)}</td>
@@ -42,12 +44,13 @@ export default async function ExchangePage({ slug, searchParams }: { slug: strin
   const s = d.stats;
   const addrs = m.exchangeAddresses.filter((a) => a.exchange === slug && a.monitored);
   const chart = pairSeries(d.series, d.window, (x: any) => Number(x.inflow), (x: any) => Number(x.outflow));
+  const maxRecent = Math.max(0, ...recent.rows.map((f: any) => Number(f.amount)));
   const daily = [...chart].reverse().filter((x) => x.a || x.b);
   const path = `/${d.exchange.name}`;
 
   return (
     <>
-      <PageHeader title={d.exchange.name} subtitle={`${windowLabel(d.window)} · DEOD flows through monitored ${d.exchange.name} address${addrs.length > 1 ? 'es' : ''}`}>
+      <PageHeader eyebrow="Exchange" title={d.exchange.name} subtitle={`${windowLabel(d.window)} · DEOD flows through monitored ${d.exchange.name} address${addrs.length > 1 ? 'es' : ''}`}>
         <RangePicker path={path} params={p} />
       </PageHeader>
 
@@ -72,7 +75,7 @@ export default async function ExchangePage({ slug, searchParams }: { slug: strin
 
       <div className="mt-4 grid gap-4 xl:grid-cols-5">
         <Card title={`Historical flow · per ${d.window.bucket}`} className="xl:col-span-3">
-          <div className="px-2 pt-2"><PairBars data={chart} bucket={d.window.bucket} names={['IN', 'OUT', 'Net']} /></div>
+          <div className="px-2 pt-2"><PairBars data={chart} bucket={d.window.bucket} names={['IN', 'OUT', 'Net']} height={300} /></div>
         </Card>
         <Card title={`${d.window.bucket === 'hour' ? 'Hourly' : 'Daily'} flow table (DEOD)`} className="xl:col-span-2">
           {daily.length ? (
@@ -122,7 +125,7 @@ export default async function ExchangePage({ slug, searchParams }: { slug: strin
                     <td><Dir d={f.direction} /></td>
                     <td><Addr a={f.direction === 'IN' ? f.wallet_address : f.exchange_address} labels={labels} /></td>
                     <td><Addr a={f.direction === 'IN' ? f.exchange_address : f.wallet_address} labels={labels} /></td>
-                    <td className="r"><Deod v={f.amount} /></td>
+                    <td className="r bar-cell" style={barStyle(f.amount, maxRecent, f.direction === 'IN' ? 's1' : 's2')}><Deod v={f.amount} /></td>
                     <td className="r num text-ink-2">{f.block_number}</td>
                     <td><Tx hash={f.tx_hash} explorer={m.chain.explorer_tx_url} /></td>
                   </tr>
