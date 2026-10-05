@@ -6,7 +6,7 @@ export function FilterForm({ action, params, children }: { action: string; param
     <form action={action} className="flex flex-wrap items-end gap-3 border-b border-line bg-surface-2/30 px-4 py-3.5 text-xs text-ink-2">
       {['range', 'from', 'to'].map((k) => (params[k] ? <input key={k} type="hidden" name={k} value={params[k]} /> : null))}
       {children}
-      <button className="rounded-lg bg-s1 px-4 py-[7px] text-[13px] font-semibold text-white hover:brightness-110">Apply filters</button>
+      <button className="btn">Apply filters</button>
       <a href={`${action}?range=${params.range ?? '24h'}`} className="px-1 py-1.5 text-muted hover:text-ink">Reset</a>
     </form>
   );

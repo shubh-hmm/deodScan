@@ -28,7 +28,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="en">
       <body className="min-h-screen">
         <div className="flex min-h-screen">
-          <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col border-r border-line bg-surface/80 backdrop-blur md:flex">
+          <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col border-r border-line bg-sidebar/95 backdrop-blur md:flex">
             <Link href="/" className="flex items-center gap-3 border-b border-line px-4 py-4">
               <BrandMark />
               <div className="leading-tight">
@@ -36,6 +36,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 <div className="text-[11px] text-muted">BNB Chain · on-chain</div>
               </div>
             </Link>
+            <div className="mx-3 mt-3 flex items-center gap-2.5 rounded-xl border border-line bg-surface-2/50 px-3 py-2.5">
+              <span className="badge-icon cyan !h-8 !w-8">{Icons.chain}</span>
+              <div className="min-w-0 leading-tight">
+                <div className="whitespace-nowrap text-[13px] font-semibold">BNB Chain</div>
+                <div className="whitespace-nowrap text-[11px] text-muted">Read-only monitor</div>
+              </div>
+            </div>
             <div className="min-h-0 flex-1 overflow-y-auto"><SideNav /></div>
             <div className="m-3 rounded-xl border border-line bg-surface-2/60 px-3 py-2.5 text-[11px] leading-snug text-muted">
               <div className="flex items-center gap-1.5 font-semibold uppercase tracking-wide">
@@ -46,11 +53,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </div>
           </aside>
           <div className="min-w-0 flex-1">
-            <header className="sticky top-0 z-20 flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-line bg-page/80 px-4 py-2.5 backdrop-blur-md md:px-6">
+            <header className="sticky top-0 z-20 flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-line bg-page/70 px-4 py-3 backdrop-blur-md md:px-6">
               <PriceTicker initial={price} />
               <form action="/search" className="relative ml-auto w-full max-w-md sm:w-80">
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted">{Icons.search}</span>
-                <input name="q" placeholder="Search wallet or transaction hash" className="w-full !pl-9" aria-label="Search" />
+                <input name="q" placeholder="Search wallet or transaction hash" className="w-full !rounded-xl !border-line-strong !bg-surface/90 !py-2 !pl-9" aria-label="Search" />
               </form>
             </header>
             <MobileNav />

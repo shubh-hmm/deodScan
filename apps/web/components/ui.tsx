@@ -18,17 +18,19 @@ export function Card({ title, children, actions, className = '' }: { title?: Rea
 }
 
 /** Stat tile: label, value, optional sub-line and a decorative trend (the numbers carry the meaning). */
-export function Stat({ label, value, sub, title, tone, trend }: {
-  label: string; value: ReactNode; sub?: ReactNode; title?: string; tone?: 'in' | 'out'; trend?: ReactNode;
+export function Stat({ label, value, sub, title, tone, trend, icon }: {
+  label: string; value: ReactNode; sub?: ReactNode; title?: string; tone?: 'in' | 'out'; trend?: ReactNode; icon?: ReactNode;
 }) {
   return (
     <div className="card tile rise min-w-0 px-4 pb-3 pt-3.5" title={title}>
-      <div className="flex items-center gap-2 text-xs font-medium text-muted">
-        {tone && <span className={`inline-block h-2 w-2 rounded-full ${tone === 'in' ? 'bg-s1' : 'bg-s2'}`} />}
-        {label}
+      <div className="flex items-center gap-3">
+        {icon && <span className={`badge-icon ${tone ?? 'cyan'}`}>{icon}</span>}
+        <div className="min-w-0">
+          <div className="text-xs font-medium text-muted">{label}</div>
+          <div className="truncate text-[24px] font-semibold leading-7 tracking-tight text-ink">{value}</div>
+        </div>
       </div>
-      <div className="mt-1.5 truncate text-[26px] font-semibold leading-8 tracking-tight text-ink">{value}</div>
-      {sub && <div className="mt-0.5 text-xs leading-snug text-ink-2">{sub}</div>}
+      {sub && <div className="mt-1.5 text-xs leading-snug text-ink-2">{sub}</div>}
       {trend && <div className="-mx-1 mt-2 h-9" aria-hidden="true">{trend}</div>}
     </div>
   );

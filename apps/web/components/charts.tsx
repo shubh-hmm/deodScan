@@ -3,16 +3,17 @@
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
+import { useId } from 'react';
 import { compactNum } from '@/lib/format';
 
 // Series colours: categorical slots 1-3 validated for the dark surface (blue / orange / aqua).
 // Text never wears a series colour; marks beside the text carry identity.
 export const SERIES = { in: '#3987e5', out: '#d95926', net: '#199e70' } as const;
-const SURFACE = '#1a1a19';
-const GRID = '#2c2c2a';
-const AXIS = '#383835';
-const MUTED = '#898781';
-const INK2 = '#c3c2b7';
+const SURFACE = '#242a42';
+const GRID = '#343c5c';
+const AXIS = '#444d73';
+const MUTED = '#8f96b4';
+const INK2 = '#c9cee3';
 
 const full = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
 
@@ -119,21 +120,66 @@ function CumTooltip({ active, payload, bucket, unit }: any) {
   );
 }
 
-/** One series (cumulative net flow since the window start): a 2px line with a 10% wash, crosshair and a zero baseline. */
+/** Vertical colour fade for an area fill: strong at the line, transparent at the baseline. */
+function Fade({ id, color, top = 0.4 }: { id: string; color: string; top?: number }) {
+  return (
+    <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stopColor={color} stopOpacity={top} />
+      <stop offset="100%" stopColor={color} stopOpacity={0.02} />
+    </linearGradient>
+  );
+}
+
+/** White dot with a series-coloured ring, shown on each point only while the series is short enough to stay readable. */
+const dotFor = (color: string, count: number) => (count <= 45 ? { r: 3.5, fill: '#ffffff', stroke: color, strokeWidth: 2 } : false);
+const activeDot = (color: string) => ({ r: 5.5, fill: '#ffffff', stroke: color, strokeWidth: 2.5 });
+
+/** One series (cumulative net flow since the window start): 2px line, gradient wash, crosshair and a zero baseline. */
 export function CumulativeArea({
   data, bucket, unit = 'DEOD', height = 250,
 }: { data: CumPoint[]; bucket: 'hour' | 'day'; unit?: string; height?: number }) {
+  const gid = useId().replace(/:/g, '');
   if (data.length < 2) return <div className="flex items-center justify-center text-sm text-muted" style={{ height }}>Not enough activity in this period.</div>;
   return (
     <ResponsiveContainer width="100%" height={height}>
       <AreaChart data={data} margin={{ top: 10, right: 14, bottom: 0, left: 4 }}>
+        <defs><Fade id={`cum-${gid}`} color={SERIES.net} top={0.38} /></defs>
         <CartesianGrid vertical={false} stroke={GRID} />
         <XAxis dataKey="bucket" tickFormatter={tickTime(bucket)} stroke={AXIS} tick={axisTick} tickLine={false} minTickGap={28} />
         <YAxis tickFormatter={compactNum} stroke={AXIS} tick={axisTick} tickLine={false} axisLine={false} width={46} />
         <ReferenceLine y={0} stroke={AXIS} />
         <Tooltip cursor={{ stroke: MUTED, strokeWidth: 1 }} content={<CumTooltip bucket={bucket} unit={unit} />} />
-        <Area type="linear" dataKey="cum" stroke={SERIES.net} strokeWidth={2} fill={SERIES.net} fillOpacity={0.1}
-          dot={false} activeDot={{ r: 5, fill: SERIES.net, stroke: SURFACE, strokeWidth: 2 }} isAnimationActive={false} />
+        <Area type="linear" dataKey="cum" stroke={SERIES.net} strokeWidth={2} fill={`url(#cum-${gid})`}
+          dot={dotFor(SERIES.net, data.length)} activeDot={activeDot(SERIES.net)} isAnimationActive={false} />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
+/**
+ * Two overlapping areas over time (IN vs OUT, BUY vs SELL): blue gradient area plus an orange line, each with white
+ * dot markers, and a crosshair tooltip listing both values. The series names and totals are shown in chips above.
+ */
+export function FlowArea({
+  data, bucket, names, unit = 'DEOD', height = 340,
+}: { data: PairPoint[]; bucket: 'hour' | 'day'; names: [string, string, string?]; unit?: string; height?: number }) {
+  const gid = useId().replace(/:/g, '');
+  if (!data.length) return <div className="flex items-center justify-center text-sm text-muted" style={{ height }}>No activity in this period.</div>;
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <AreaChart data={data} margin={{ top: 10, right: 14, bottom: 0, left: 4 }}>
+        <defs>
+          <Fade id={`in-${gid}`} color={SERIES.in} top={0.45} />
+          <Fade id={`out-${gid}`} color={SERIES.out} top={0.22} />
+        </defs>
+        <CartesianGrid vertical={false} stroke={GRID} />
+        <XAxis dataKey="bucket" tickFormatter={tickTime(bucket)} stroke={AXIS} tick={axisTick} tickLine={false} minTickGap={28} />
+        <YAxis tickFormatter={compactNum} stroke={AXIS} tick={axisTick} tickLine={false} axisLine={false} width={46} />
+        <Tooltip cursor={{ stroke: MUTED, strokeWidth: 1 }} content={<PairTooltip bucket={bucket} names={names} unit={unit} />} />
+        <Area type="monotone" dataKey="a" name={names[0]} stroke={SERIES.in} strokeWidth={2} fill={`url(#in-${gid})`}
+          dot={dotFor(SERIES.in, data.length)} activeDot={activeDot(SERIES.in)} isAnimationActive={false} />
+        <Area type="monotone" dataKey="b" name={names[1]} stroke={SERIES.out} strokeWidth={2} fill={`url(#out-${gid})`}
+          dot={dotFor(SERIES.out, data.length)} activeDot={activeDot(SERIES.out)} isAnimationActive={false} />
       </AreaChart>
     </ResponsiveContainer>
   );

@@ -31,10 +31,9 @@ export function SideNav() {
             return (
               <Link key={href} href={href} aria-current={on ? 'page' : undefined}
                 className={`relative flex items-center gap-2.5 rounded-lg px-2.5 py-2 transition-colors ${on
-                  ? 'bg-surface-3 font-medium text-ink'
+                  ? 'bg-gradient-to-r from-[#3a6fd0] to-[#2a4a96] font-medium text-white shadow-[0_6px_16px_-8px_rgba(58,111,208,0.9)]'
                   : 'text-ink-2 hover:bg-surface-2 hover:text-ink'}`}>
-                {on && <span className="absolute -left-3 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-s1" />}
-                <span className={on ? 'text-s1' : 'text-muted'}>{icon}</span>
+                <span className={on ? 'text-white' : 'text-muted'}>{icon}</span>
                 {label}
               </Link>
             );
@@ -54,8 +53,8 @@ export function MobileNav() {
         const on = active(href);
         return (
           <Link key={href} href={href} aria-current={on ? 'page' : undefined}
-            className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 ${on ? 'bg-surface-3 font-medium text-ink' : 'text-ink-2 hover:bg-surface-2'}`}>
-            <span className={on ? 'text-s1' : 'text-muted'}>{icon}</span>{label}
+            className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 ${on ? 'bg-gradient-to-r from-[#3a6fd0] to-[#2a4a96] font-medium text-white' : 'text-ink-2 hover:bg-surface-2'}`}>
+            <span className={on ? 'text-white' : 'text-muted'}>{icon}</span>{label}
           </Link>
         );
       })}

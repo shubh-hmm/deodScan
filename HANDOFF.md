@@ -125,6 +125,14 @@ Starting with `pg_ctl` directly, as in the second line, runs the server detached
 
 Format: `YYYY-MM-DD — what changed — files — why/notes`
 
+- 2026-10-05 — **UI restyle to match the owner's reference image** (an "ArBitrage"-style crypto dashboard: navy/slate panels, cyan accents, a metric strip, a gradient area chart). Frontend only; 0 credits.
+  - **Theme** (`app/globals.css`): navy palette (page `#151929`, cards `#242a42`, sidebar `#1b2033`) with soft cyan/blue backdrop glows, glossy cyan buttons (`.btn`), cyan-blue gradient for the active tab and menu item, zebra table rows with a cyan hover, and circular gradient icon badges (`.badge-icon`).
+  - **Header** (`components/price-ticker.tsx`): a single strip of icon metrics: price, 24h change, 24h volume, market cap, then Live/CoinGecko. The sidebar gets a "BNB Chain · read-only monitor" card and a blue-gradient active row.
+  - **Dashboard** (`app/page.tsx`): hero net flow + cumulative chart, 5 icon stat tiles, then a **main gradient area chart** (`FlowArea`: blue IN area + orange OUT area, white dot markers, crosshair tooltip) with legend chips showing totals and an "Export CSV" button. Below it are three exchange cards (`components/flow-bars.tsx`: `ExchangeCards`) and the recent activity / PancakeSwap row. Exchange and PancakeSwap pages got icons on their tiles.
+  - **Colour checks:** the series colours (blue/orange/aqua) were re-validated on both navy surfaces (`#242a42`, `#1d2236`) with `validate_palette.js`: all pass (CVD ΔE 9.4). Cyan is UI chrome only, never a data series. Net flow is never coloured green or red (brief §10: no bullish/bearish reading). The price 24h change keeps its arrow and sign as well as colour.
+  - **Deliberate deviation from the dataviz guidance:** the area gradient fills are stronger than the usual ~10% wash, to match the reference. The line and the dot markers carry the identity.
+  - **Not copied from the reference:** the swirling backdrop image, a user profile / referral block, and the Logout / Top-up controls. This is a read-only monitor with no accounts.
+  - **Checks:** typecheck is clean for the API and web. Headless Edge sweep: 11 pages × phone and desktop have 0 sideways overflow and 0 console errors. Hover tooltips work on both area charts, and the Custom popover and active menu item work. Screenshots reviewed.
 - 2026-10-05 — **UI redesign** (owner: "improve the UI, make it more professional and amazing"). Frontend only; no API, data or Dune changes, 0 credits.
   - **Design system** (`app/globals.css`, `components/ui.tsx`, `components/icons.tsx`):
     - Deeper page background with a soft glow, rounded cards with depth, uppercase table headers, pill badges for IN/OUT/BUY/SELL, and a brand mark and nav icons in the sidebar.

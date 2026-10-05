@@ -22,6 +22,13 @@ export const Icons = {
   info: <Svg size={14}><circle cx="12" cy="12" r="9" /><path d="M12 11v5" /><path d="M12 7.6v.1" /></Svg>,
   download: <Svg size={14}><path d="M12 4v11" /><path d="m7 11 5 5 5-5" /><path d="M5 20h14" /></Svg>,
   calendar: <Svg size={14}><rect x="3.5" y="5" width="17" height="15.5" rx="2.5" /><path d="M3.5 10h17" /><path d="M8 3v4M16 3v4" /></Svg>,
+  coin: <Svg><circle cx="12" cy="12" r="8.5" /><path d="M14.8 9.3c-.5-.8-1.5-1.2-2.8-1.2-1.6 0-2.7.8-2.7 2 0 2.9 5.6 1.4 5.6 4.1 0 1.2-1.2 2-2.9 2-1.4 0-2.5-.5-3.1-1.4" /><path d="M12 6.5v1.6M12 15.9v1.6" /></Svg>,
+  trend: <Svg><path d="m3 17 6-6 4 4 8-8" /><path d="M15 7h6v6" /></Svg>,
+  volume: <Svg><path d="M5 20V11M12 20V4M19 20v-6" /></Svg>,
+  pie: <Svg><path d="M21 12A9 9 0 1 1 12 3v9h9Z" /><path d="M15.5 3.5A9 9 0 0 1 20.5 8.5H15.5v-5Z" /></Svg>,
+  down: <Svg><path d="M12 4v15" /><path d="m6 13 6 6 6-6" /></Svg>,
+  up: <Svg><path d="M12 20V5" /><path d="m6 11 6-6 6 6" /></Svg>,
+  chain: <Svg><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3A4 4 0 0 0 11 18.7l1-1" /></Svg>,
   external: <Svg size={12}><path d="M14 4h6v6" /><path d="M20 4 10 14" /><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" /></Svg>,
 };
 
@@ -31,8 +38,8 @@ export function BrandMark({ size = 30 }: { size?: number }) {
     <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" className="shrink-0">
       <defs>
         <linearGradient id="brand-g" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#3987e5" />
-          <stop offset="1" stopColor="#199e70" />
+          <stop offset="0" stopColor="#2dc6f0" />
+          <stop offset="1" stopColor="#2f6fe0" />
         </linearGradient>
       </defs>
       <rect width="32" height="32" rx="9" fill="url(#brand-g)" />

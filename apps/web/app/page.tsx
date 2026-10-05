@@ -1,10 +1,11 @@
 import Link from 'next/link';
-import { api, flat, labelMap, meta, type SearchParams } from '@/lib/api';
+import { api, clean, flat, labelMap, meta, type SearchParams } from '@/lib/api';
 import { fmtDeod, fmtInt, fmtPrice, fmtTime, fmtUsd } from '@/lib/format';
 import { pairSeries, withCumulative } from '@/lib/series';
 import { Addr, barStyle, Card, Deod, Dir, Empty, Note, PageHeader, SplitBar, Stat, Tx } from '@/components/ui';
-import { CumulativeArea, PairBars, SERIES, Sparkline } from '@/components/charts';
-import { FlowBars } from '@/components/flow-bars';
+import { CumulativeArea, FlowArea, SERIES, Sparkline } from '@/components/charts';
+import { ExchangeCards } from '@/components/flow-bars';
+import { Icons } from '@/components/icons';
 import { RangePicker, rangeParams, windowLabel } from '@/components/range';
 
 export const dynamic = 'force-dynamic';
@@ -26,6 +27,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
   const bucket = series.window.bucket as 'hour' | 'day';
   const maxRecent = Math.max(0, ...recent.rows.map((f: any) => Number(f.amount)));
   const money = (v: number) => `${fmtDeod(v)} DEOD`;
+  const csvHref = `/api-export/flows?${new URLSearchParams(clean(r))}`;
 
   return (
     <>
@@ -61,24 +63,29 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
       </Card>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-5">
-        <Stat label="Exchange inflow" tone="in" value={fmtDeod(t.inflow)} sub="DEOD into monitored addresses" title={`${t.inflow} DEOD`}
+        <Stat icon={Icons.down} label="Exchange inflow" tone="in" value={fmtDeod(t.inflow)} sub="DEOD into monitored addresses" title={`${t.inflow} DEOD`}
           trend={<Sparkline data={chart.map((x) => x.a)} color={SERIES.in} />} />
-        <Stat label="Exchange outflow" tone="out" value={fmtDeod(t.outflow)} sub="DEOD out of monitored addresses" title={`${t.outflow} DEOD`}
+        <Stat icon={Icons.up} label="Exchange outflow" tone="out" value={fmtDeod(t.outflow)} sub="DEOD out of monitored addresses" title={`${t.outflow} DEOD`}
           trend={<Sparkline data={chart.map((x) => x.b)} color={SERIES.out} />} />
-        <Stat label="Unique wallets" value={fmtInt(t.uniqueWallets)} sub="Exchange counterparties + swap signers" />
-        <Stat label="Exchange transfers" value={fmtInt(t.exchangeTransfers)} sub="DEOD transfers touching exchanges" />
-        <Stat label="PancakeSwap volume" value={fmtDeod(ps.deod_volume)} sub={`${fmtUsd(ps.usd_volume, true)} · ${fmtInt(ps.swaps)} swaps`} title={`${ps.deod_volume} DEOD`} />
+        <Stat icon={Icons.wallets} label="Unique wallets" value={fmtInt(t.uniqueWallets)} sub="Exchange counterparties + swap signers" />
+        <Stat icon={Icons.activity} label="Exchange transfers" value={fmtInt(t.exchangeTransfers)} sub="DEOD transfers touching exchanges" />
+        <Stat icon={Icons.layers} label="PancakeSwap volume" value={fmtDeod(ps.deod_volume)} sub={`${fmtUsd(ps.usd_volume, true)} · ${fmtInt(ps.swaps)} swaps`} title={`${ps.deod_volume} DEOD`} />
       </div>
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-5">
-        <Card title="Exchange comparison (DEOD)" className="xl:col-span-2">
-          <FlowBars rows={ov.exchanges} />
-          <div className="border-t border-line p-3"><Note>{m.coverageNote}</Note></div>
-        </Card>
-        <Card title={`Exchange flow over time · per ${bucket}`} className="xl:col-span-3">
-          <div className="px-2 pt-3"><PairBars data={chart} bucket={bucket} names={['IN', 'OUT', 'Net']} height={430} /></div>
-        </Card>
-      </div>
+      {/* Main graph, laid out like the reference: title, legend chips with totals, action button */}
+      <Card className="mt-4"
+        title={`Exchange flow (${bucket === 'hour' ? 'hourly' : 'daily'} graph)`}
+        actions={<a className="btn" href={csvHref}>{Icons.download} Export CSV</a>}>
+        <div className="flex flex-wrap gap-2 px-4 pt-4">
+          <span className="chip"><span className="h-2 w-2 rounded-full bg-s1" />Total inflow<b className="num font-semibold text-ink">{fmtDeod(t.inflow)}</b></span>
+          <span className="chip"><span className="h-2 w-2 rounded-full bg-s2" />Total outflow<b className="num font-semibold text-ink">{fmtDeod(t.outflow)}</b></span>
+          <span className="chip text-muted">per {bucket} · UTC</span>
+        </div>
+        <div className="px-2 pt-2"><FlowArea data={chart} bucket={bucket} names={['IN', 'OUT', 'Net']} height={340} /></div>
+      </Card>
+
+      <div className="mt-4"><ExchangeCards rows={ov.exchanges} /></div>
+      <div className="mt-3"><Note>{m.coverageNote}</Note></div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-5">
         <Card title="Recent exchange activity" className="xl:col-span-3"

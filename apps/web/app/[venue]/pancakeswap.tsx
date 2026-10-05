@@ -4,6 +4,7 @@ import { fmtDeod, fmtInt, fmtPrice, fmtTime, fmtUsd } from '@/lib/format';
 import { pairSeries } from '@/lib/series';
 import { Addr, barStyle, Card, Deod, Empty, Note, PageHeader, SplitBar, Stat } from '@/components/ui';
 import { PairBars } from '@/components/charts';
+import { Icons } from '@/components/icons';
 import { RangePicker, rangeParams, windowLabel } from '@/components/range';
 import { SwapTable } from '@/components/swap-table';
 
@@ -73,12 +74,12 @@ export default async function PancakePage({ searchParams }: { searchParams: Sear
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
-        <Stat label="DEOD volume" value={fmtDeod(s.deod_volume)} sub={fmtUsd(s.usd_volume, true)} title={`${s.deod_volume} DEOD`} />
-        <Stat label="Buy volume" tone="in" value={fmtDeod(s.buy_deod)} sub={`${fmtUsd(s.buy_usd, true)} · ${fmtInt(s.buys)} buys`} />
-        <Stat label="Sell volume" tone="out" value={fmtDeod(s.sell_deod)} sub={`${fmtUsd(s.sell_usd, true)} · ${fmtInt(s.sells)} sells`} />
-        <Stat label="Swaps" value={fmtInt(s.swaps)} />
-        <Stat label="Unique traders" value={fmtInt(s.unique_wallets)} sub="Distinct tx signers" />
-        <Stat label="Last price" value={fmtPrice(s.last_price)} sub={`Largest swap ${fmtDeod(s.largest_swap_deod)} DEOD`} />
+        <Stat icon={Icons.volume} label="DEOD volume" value={fmtDeod(s.deod_volume)} sub={fmtUsd(s.usd_volume, true)} title={`${s.deod_volume} DEOD`} />
+        <Stat icon={Icons.down} label="Buy volume" tone="in" value={fmtDeod(s.buy_deod)} sub={`${fmtUsd(s.buy_usd, true)} · ${fmtInt(s.buys)} buys`} />
+        <Stat icon={Icons.up} label="Sell volume" tone="out" value={fmtDeod(s.sell_deod)} sub={`${fmtUsd(s.sell_usd, true)} · ${fmtInt(s.sells)} sells`} />
+        <Stat icon={Icons.swap} label="Swaps" value={fmtInt(s.swaps)} />
+        <Stat icon={Icons.wallets} label="Unique traders" value={fmtInt(s.unique_wallets)} sub="Distinct tx signers" />
+        <Stat icon={Icons.coin} label="Last price" value={fmtPrice(s.last_price)} sub={`Largest swap ${fmtDeod(s.largest_swap_deod)} DEOD`} />
       </div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-5">

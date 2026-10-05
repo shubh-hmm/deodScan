@@ -4,6 +4,7 @@ import { fmtDeod, fmtInt, fmtTime } from '@/lib/format';
 import { pairSeries } from '@/lib/series';
 import { Addr, barStyle, Card, Deod, Dir, Empty, Note, PageHeader, Stat, Tx } from '@/components/ui';
 import { PairBars } from '@/components/charts';
+import { Icons } from '@/components/icons';
 import { RangePicker, rangeParams, windowLabel } from '@/components/range';
 
 function TopTable({ rows, labels, kind }: { rows: any[]; labels: Map<string, string>; kind: 'Sender' | 'Receiver' }) {
@@ -67,10 +68,10 @@ export default async function ExchangePage({ slug, searchParams }: { slug: strin
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Inflow (deposits)" tone="in" value={fmtDeod(s.inflow)} sub={`${fmtInt(s.deposits)} transfers · ${fmtInt(s.unique_depositors)} senders`} title={`${s.inflow} DEOD`} />
-        <Stat label="Outflow (withdrawals)" tone="out" value={fmtDeod(s.outflow)} sub={`${fmtInt(s.withdrawals)} transfers · ${fmtInt(s.unique_withdrawers)} receivers`} title={`${s.outflow} DEOD`} />
-        <Stat label="Net flow" value={fmtDeod(s.net, { sign: true })} sub="Inflow − outflow" title={`${s.net} DEOD`} />
-        <Stat label="Unique wallets" value={fmtInt(s.unique_wallets)} sub={`Largest in ${fmtDeod(s.largest_deposit)} · out ${fmtDeod(s.largest_withdrawal)}`} />
+        <Stat icon={Icons.down} label="Inflow (deposits)" tone="in" value={fmtDeod(s.inflow)} sub={`${fmtInt(s.deposits)} transfers · ${fmtInt(s.unique_depositors)} senders`} title={`${s.inflow} DEOD`} />
+        <Stat icon={Icons.up} label="Outflow (withdrawals)" tone="out" value={fmtDeod(s.outflow)} sub={`${fmtInt(s.withdrawals)} transfers · ${fmtInt(s.unique_withdrawers)} receivers`} title={`${s.outflow} DEOD`} />
+        <Stat icon={Icons.exchange} label="Net flow" value={fmtDeod(s.net, { sign: true })} sub="Inflow − outflow" title={`${s.net} DEOD`} />
+        <Stat icon={Icons.wallets} label="Unique wallets" value={fmtInt(s.unique_wallets)} sub={`Largest in ${fmtDeod(s.largest_deposit)} · out ${fmtDeod(s.largest_withdrawal)}`} />
       </div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-5">

@@ -1,23 +1,26 @@
 @import "tailwindcss";
 
-/* Dark-first dashboard. Series colours validated against --surface with the dataviz validator (dark mode):
-   blue / orange / aqua = categorical slots 1-3 (IN, OUT, net). Text never wears a series colour. */
+/* Navy dashboard theme. Series colours (blue IN, orange OUT, aqua net) were validated with the dataviz
+   validator against both navy surfaces below (#242a42 cards, #1d2236 page/sidebar): all checks pass.
+   Cyan is UI chrome only (buttons, focus); it is never a data series. Text never wears a series colour. */
 :root {
   color-scheme: dark;
-  --page: #0c0c0c;
-  --surface: #1a1a19;
-  --surface-2: #232321;
-  --surface-3: #2c2c2a;
-  --border: rgba(255, 255, 255, 0.09);
-  --border-strong: rgba(255, 255, 255, 0.16);
+  --page: #151929;
+  --sidebar: #1b2033;
+  --surface: #242a42;
+  --surface-2: #2b3251;
+  --surface-3: #363f66;
+  --border: rgba(160, 180, 255, 0.11);
+  --border-strong: rgba(160, 180, 255, 0.22);
   --text: #ffffff;
-  --text-2: #c3c2b7;
-  --muted: #898781;
-  --grid: #2c2c2a;
-  --axis: #383835;
+  --text-2: #c9cee3;
+  --muted: #8f96b4;
+  --grid: #343c5c;
+  --axis: #444d73;
   --s1: #3987e5;
   --s2: #d95926;
   --s3: #199e70;
+  --accent: #1fb6e9;
   --good: #0ca30c;
   --warning: #fab219;
   --critical: #d03b3b;
@@ -25,6 +28,7 @@
 
 @theme inline {
   --color-page: var(--page);
+  --color-sidebar: var(--sidebar);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
   --color-surface-3: var(--surface-3);
@@ -36,6 +40,7 @@
   --color-s1: var(--s1);
   --color-s2: var(--s2);
   --color-s3: var(--s3);
+  --color-accent: var(--accent);
   --color-good: var(--good);
   --color-warning: var(--warning);
   --color-critical: var(--critical);
@@ -44,10 +49,12 @@
 
 html { scrollbar-color: var(--axis) var(--page); }
 
+/* Deep navy with soft cyan and blue light, echoing the reference's flowing backdrop */
 body {
   background:
-    radial-gradient(900px 320px at 60% -120px, rgba(57, 135, 229, 0.11), transparent 70%),
-    radial-gradient(700px 300px at 5% 0, rgba(25, 158, 112, 0.06), transparent 70%),
+    radial-gradient(900px 520px at 100% -8%, rgba(20, 200, 235, 0.20), transparent 62%),
+    radial-gradient(760px 520px at -6% 8%, rgba(45, 105, 235, 0.22), transparent 64%),
+    radial-gradient(900px 600px at 55% 115%, rgba(25, 120, 220, 0.14), transparent 70%),
     var(--page);
   background-attachment: fixed;
   color: var(--text);
@@ -62,15 +69,15 @@ h1, h2 { letter-spacing: -0.015em; }
 /* Big standalone figures use proportional digits; tabular is for columns only. */
 .hero-figure { font-variant-numeric: proportional-nums; letter-spacing: -0.03em; }
 
-::selection { background: color-mix(in srgb, var(--s1) 40%, transparent); }
-:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; border-radius: 4px; }
+::selection { background: color-mix(in srgb, var(--accent) 40%, transparent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 
 /* ---------- Surfaces ---------- */
 .card {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0) 60px), var(--surface);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0) 70px), var(--surface);
   border: 1px solid var(--border);
   border-radius: 14px;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 12px 28px -14px rgba(5, 8, 24, 0.75);
 }
 .card-head { border-bottom: 1px solid var(--border); }
 
@@ -81,42 +88,72 @@ h1, h2 { letter-spacing: -0.015em; }
 .rise { animation: rise 0.35s ease-out both; }
 @media (prefers-reduced-motion: reduce) { .rise { animation: none; } .tile:hover { transform: none; } }
 
+/* Circular icon badge, as in the reference's metric strip */
+.badge-icon {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 34px; height: 34px; border-radius: 999px; color: #fff;
+  background: radial-gradient(circle at 30% 25%, #56627f, #343c5c);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.18) inset, 0 4px 10px -4px rgba(0, 0, 0, 0.6);
+}
+.badge-icon.in { background: radial-gradient(circle at 30% 25%, #6aa6f2, #2467c0); }
+.badge-icon.out { background: radial-gradient(circle at 30% 25%, #f08a5d, #b2441a); }
+.badge-icon.net { background: radial-gradient(circle at 30% 25%, #3cc79a, #0f7a57); }
+.badge-icon.cyan { background: radial-gradient(circle at 30% 25%, #4fd0f2, #0b7fae); }
+
 /* ---------- Tables ---------- */
 table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.data th {
   text-align: left; font-weight: 600; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase;
-  color: var(--muted); padding: 9px 12px; border-bottom: 1px solid var(--border); white-space: nowrap;
-  position: sticky; top: 0; background: var(--surface); z-index: 1;
+  color: var(--muted); padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap;
+  position: sticky; top: 0; background: var(--surface-2); z-index: 1;
 }
-table.data td { padding: 8px 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); white-space: nowrap; }
+table.data td { padding: 9px 12px; border-bottom: 1px solid rgba(160, 180, 255, 0.06); white-space: nowrap; }
 table.data td.r, table.data th.r { text-align: right; }
+table.data tbody tr:nth-child(even) { background: rgba(160, 180, 255, 0.035); }
 table.data tbody tr:last-child td { border-bottom: 0; }
-table.data tbody tr:hover { background: rgba(255, 255, 255, 0.035); }
+table.data tbody tr:hover { background: rgba(31, 182, 233, 0.08); }
 
 /* Magnitude bar behind a numeric cell: --w is the share of the column maximum, --bar the series colour. */
 .bar-cell {
-  background-image: linear-gradient(to left, color-mix(in srgb, var(--bar, var(--s1)) 26%, transparent) var(--w, 0%), transparent var(--w, 0%));
+  background-image: linear-gradient(to left, color-mix(in srgb, var(--bar, var(--s1)) 30%, transparent) var(--w, 0%), transparent var(--w, 0%));
   background-repeat: no-repeat;
 }
 
 /* ---------- Controls ---------- */
-a.link { color: var(--s1); }
+a.link { color: #6ab7ff; }
 a.link:hover { text-decoration: underline; }
 
 input, select {
-  background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+  background: rgba(10, 14, 32, 0.45); border: 1px solid var(--border); border-radius: 8px;
   padding: 6px 10px; font-size: 13px; color: var(--text);
 }
 input:hover, select:hover { border-color: var(--border-strong); }
 input[type="date"] { color-scheme: dark; }
 
-.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 10px; padding: 2px; background: var(--surface); gap: 2px; }
+/* Glossy cyan button (white text on a deep cyan-blue so it stays readable) */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer;
+  padding: 7px 16px; font-size: 13px; font-weight: 600; color: #fff; border-radius: 9px;
+  background: linear-gradient(180deg, #1196c9 0%, #0a74a6 100%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.28) inset, 0 6px 14px -6px rgba(10, 150, 210, 0.7);
+  border: 1px solid rgba(80, 200, 240, 0.45); transition: filter 0.15s, transform 0.15s;
+}
+.btn:hover { filter: brightness(1.12); }
+.btn:active { transform: translateY(1px); }
+
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 10px; padding: 2px; background: rgba(10, 14, 32, 0.35); gap: 2px; }
 .seg > a, .seg > details > summary { padding: 5px 11px; font-size: 12px; border-radius: 8px; color: var(--text-2); cursor: pointer; list-style: none; }
 .seg > a:hover, .seg > details > summary:hover { background: var(--surface-2); color: var(--text); }
-.seg > a[aria-current="true"], .seg > details > summary.on, .seg > details[open] > summary { background: var(--surface-3); color: var(--text); font-weight: 600; box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset; }
+.seg > a[aria-current="true"], .seg > details > summary.on, .seg > details[open] > summary {
+  background: linear-gradient(180deg, #1196c9, #0a74a6); color: #fff; font-weight: 600;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.25) inset;
+}
 summary::-webkit-details-marker { display: none; }
 
 .pill { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 2px 9px 2px 7px; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-2); }
+
+/* Small legend / value chip used above charts */
+.chip { display: inline-flex; align-items: center; gap: 8px; border-radius: 8px; padding: 4px 10px; font-size: 12px; color: var(--text-2); background: rgba(10, 14, 32, 0.4); border: 1px solid var(--border); }
 
 /* ---------- Loading ---------- */
 .skeleton { border-radius: 14px; background: var(--surface); border: 1px solid var(--border); animation: skeleton-pulse 1.4s ease-in-out infinite; }

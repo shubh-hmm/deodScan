@@ -30,7 +30,7 @@ export function RangePicker({ path, params }: { path: string; params: Record<str
           <label className="flex flex-col gap-1">To (UTC)
             <input type="date" name="to" defaultValue={params.to?.slice(0, 10)} />
           </label>
-          <button className="rounded-lg bg-s1 px-3 py-2 text-[13px] font-semibold text-white hover:brightness-110">Apply range</button>
+          <button className="btn">Apply range</button>
         </form>
       </details>
     </div>
