@@ -15,7 +15,8 @@
     "api:dev": "tsx watch apps/api/src/server.ts",
     "web": "npm run dev -w @deod/web",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "audit": "node scripts/audit.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.6.4",

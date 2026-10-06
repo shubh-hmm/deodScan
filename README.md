@@ -101,6 +101,17 @@ Data is synced once per **completed UTC day**. The current, incomplete day is ne
 
 Avoid joining `tokens.transfers` to label tables: one exploratory query that did this cost 293 credits.
 
+## Data audit
+
+`npm run audit` cross-checks what the dashboard shows against independent sources. It is read-only and spends no Dune credits (`--no-chain` skips the blockchain sampling).
+
+1. **Database rules:** no duplicates, exact amount maths, consistent buy/sell sides, time order, flows re-derived from the raw transfers.
+2. **API vs fresh SQL:** every headline number (totals, per-exchange, PancakeSwap, charts, histogram, CSV exports, top wallets, wallet profile) recomputed independently, for the all-time, 30-day and 7-day views.
+3. **Database vs blockchain:** about 60 transfers and 80 swaps are sampled and compared with the on-chain receipts (addresses, exact amounts, block, timestamp, buy/sell side, and that the stored trader is the transaction signer).
+4. **Balances:** stored IN − OUT against the live on-chain balance of each monitored address. A small difference is expected while the current UTC day is not yet synced.
+5. **Prices:** each pool's on-chain price against CoinGecko and our last stored trade.
+6. **Dune aggregates:** counts and exact sums from `queries/dune/verify/08_audit_transfers.sql` and `09_audit_swaps.sql`. Run them first with `node scripts/dune-run.mjs <file> --start "…" --end "…"` (about 2.6 credits for an 11-day window); the audit reads `.dune-output/`.
+
 ## API
 
 These read endpoints take `range=1h|6h|24h|7d|30d|all|custom` (with `from` and `to` for custom). The ones marked CSV also accept `format=csv`; exports include the raw transaction hash and a BscScan link.
