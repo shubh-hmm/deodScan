@@ -24,7 +24,7 @@ export function Stat({ label, value, sub, title, tone, trend, icon, delta }: {
   return (
     <div className="card tile rise min-w-0 px-4 pb-3 pt-3.5" title={title}>
       <div className="flex items-center gap-3">
-        {icon && <span className={`badge-icon ${tone ?? 'cyan'}`}>{icon}</span>}
+        {icon && <span className={`badge-icon ${tone ?? 'brand'}`}>{icon}</span>}
         <div className="min-w-0">
           <div className="text-xs font-medium text-muted">{label}</div>
           <div className="truncate text-[24px] font-semibold leading-7 tracking-tight text-ink">{value}</div>
@@ -85,8 +85,8 @@ export function Deod({ v, sign }: { v: string | null | undefined; sign?: boolean
   return <span className="num" title={v ?? undefined}>{fmtDeod(v, { sign })}</span>;
 }
 
-/** Style for a table cell that shows a magnitude bar behind its number (share of the column maximum). */
-export function barStyle(value: string | number | null | undefined, max: number, tone: 's1' | 's2' | 's3' = 's1'): CSSProperties {
+/** Style for a table cell that shows a magnitude bar behind its number (share of the column maximum). Blue/orange are for inflow/outflow rows; the default neutral bar is the brand violet. */
+export function barStyle(value: string | number | null | undefined, max: number, tone: 's1' | 's2' | 's3' | 'accent' = 'accent'): CSSProperties {
   const share = max > 0 ? Math.max(0, Math.min(1, Number(value ?? 0) / max)) : 0;
   return { '--w': `${(share * 100).toFixed(1)}%`, '--bar': `var(--${tone})` } as CSSProperties;
 }

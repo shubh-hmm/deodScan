@@ -1,26 +1,27 @@
 @import "tailwindcss";
 
-/* Navy dashboard theme. Series colours (blue IN, orange OUT, aqua net) were validated with the dataviz
-   validator against the dark navy surfaces below (#121a2c cards, #0d1322 sidebar): all checks pass.
-   Cyan is UI chrome only (buttons, focus); it is never a data series. Text never wears a series colour. */
+/* Neutral graphite dashboard theme. The base is deliberately NOT blue, so blue appears only where it carries meaning
+   (IN / inflow). Series colours (blue IN, orange OUT, aqua net) were validated with the dataviz validator against the
+   surfaces below (#16161b cards, #101014 sidebar): all checks pass. The violet accent is UI chrome only (buttons, active
+   menu item, links, focus); it is never a data series. Text never wears a series colour. */
 :root {
   color-scheme: dark;
-  --page: #0a0f1c;
-  --sidebar: #0d1322;
-  --surface: #121a2c;
-  --surface-2: #18223a;
-  --surface-3: #212d4c;
-  --border: rgba(130, 160, 255, 0.10);
-  --border-strong: rgba(130, 160, 255, 0.20);
+  --page: #0c0c0f;
+  --sidebar: #101014;
+  --surface: #16161b;
+  --surface-2: #1e1e25;
+  --surface-3: #292932;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.17);
   --text: #ffffff;
-  --text-2: #c4cae0;
-  --muted: #8a93b5;
-  --grid: #1f2a44;
-  --axis: #2c3858;
+  --text-2: #cbcad4;
+  --muted: #8e8d9b;
+  --grid: #26262e;
+  --axis: #353540;
   --s1: #3987e5;
   --s2: #d95926;
   --s3: #199e70;
-  --accent: #1fb6e9;
+  --accent: #8b6cff;
   --good: #0ca30c;
   --warning: #fab219;
   --critical: #d03b3b;
@@ -50,12 +51,12 @@
 
 html { scrollbar-color: var(--axis) var(--page); }
 
-/* Deep navy with soft cyan and blue light, echoing the reference's flowing backdrop */
+/* Graphite with a faint violet and magenta glow (matches the logo) */
 body {
   background:
-    radial-gradient(900px 520px at 100% -8%, rgba(20, 200, 235, 0.10), transparent 62%),
-    radial-gradient(760px 520px at -6% 8%, rgba(45, 105, 235, 0.13), transparent 64%),
-    radial-gradient(900px 600px at 55% 115%, rgba(25, 120, 220, 0.08), transparent 70%),
+    radial-gradient(900px 520px at 100% -8%, rgba(139, 108, 255, 0.10), transparent 62%),
+    radial-gradient(760px 520px at -6% 8%, rgba(225, 85, 214, 0.06), transparent 64%),
+    radial-gradient(900px 600px at 55% 115%, rgba(139, 108, 255, 0.05), transparent 70%),
     var(--page);
   background-attachment: fixed;
   color: var(--text);
@@ -78,7 +79,7 @@ h1, h2 { letter-spacing: -0.015em; }
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0) 60px), var(--surface);
   border: 1px solid var(--border);
   border-radius: 14px;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 12px 28px -14px rgba(5, 8, 24, 0.75);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 12px 28px -14px rgba(0, 0, 0, 0.7);
 }
 .card-head { border-bottom: 1px solid var(--border); }
 
@@ -93,13 +94,13 @@ h1, h2 { letter-spacing: -0.015em; }
 .badge-icon {
   display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
   width: 34px; height: 34px; border-radius: 999px; color: #fff;
-  background: radial-gradient(circle at 30% 25%, #56627f, #343c5c);
+  background: radial-gradient(circle at 30% 25%, #5a5a68, #34343f);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.18) inset, 0 4px 10px -4px rgba(0, 0, 0, 0.6);
 }
 .badge-icon.in { background: radial-gradient(circle at 30% 25%, #6aa6f2, #2467c0); }
 .badge-icon.out { background: radial-gradient(circle at 30% 25%, #f08a5d, #b2441a); }
 .badge-icon.net { background: radial-gradient(circle at 30% 25%, #3cc79a, #0f7a57); }
-.badge-icon.cyan { background: radial-gradient(circle at 30% 25%, #4fd0f2, #0b7fae); }
+.badge-icon.brand { background: radial-gradient(circle at 30% 25%, #a58cff, #6a45e0); }
 
 /* ---------- Tables ---------- */
 table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -108,45 +109,45 @@ table.data th {
   color: var(--muted); padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap;
   position: sticky; top: 0; background: var(--surface-2); z-index: 1;
 }
-table.data td { padding: 9px 12px; border-bottom: 1px solid rgba(160, 180, 255, 0.06); white-space: nowrap; }
+table.data td { padding: 9px 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); white-space: nowrap; }
 table.data td.r, table.data th.r { text-align: right; }
-table.data tbody tr:nth-child(even) { background: rgba(160, 180, 255, 0.035); }
+table.data tbody tr:nth-child(even) { background: rgba(255, 255, 255, 0.022); }
 table.data tbody tr:last-child td { border-bottom: 0; }
-table.data tbody tr:hover { background: rgba(31, 182, 233, 0.08); }
+table.data tbody tr:hover { background: rgba(139, 108, 255, 0.09); }
 
 /* Magnitude bar behind a numeric cell: --w is the share of the column maximum, --bar the series colour. */
 .bar-cell {
-  background-image: linear-gradient(to left, color-mix(in srgb, var(--bar, var(--s1)) 30%, transparent) var(--w, 0%), transparent var(--w, 0%));
+  background-image: linear-gradient(to left, color-mix(in srgb, var(--bar, var(--accent)) 30%, transparent) var(--w, 0%), transparent var(--w, 0%));
   background-repeat: no-repeat;
 }
 
 /* ---------- Controls ---------- */
-a.link { color: #6ab7ff; }
+a.link { color: #b9a8ff; }
 a.link:hover { text-decoration: underline; }
 
 input, select {
-  background: rgba(10, 14, 32, 0.45); border: 1px solid var(--border); border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35); border: 1px solid var(--border); border-radius: 8px;
   padding: 6px 10px; font-size: 13px; color: var(--text);
 }
 input:hover, select:hover { border-color: var(--border-strong); }
 input[type="date"] { color-scheme: dark; }
 
-/* Glossy cyan button (white text on a deep cyan-blue so it stays readable) */
+/* Glossy brand-violet button (white text on a deep violet so it stays readable) */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer;
   padding: 7px 16px; font-size: 13px; font-weight: 600; color: #fff; border-radius: 9px;
-  background: linear-gradient(180deg, #1196c9 0%, #0a74a6 100%);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.28) inset, 0 6px 14px -6px rgba(10, 150, 210, 0.7);
-  border: 1px solid rgba(80, 200, 240, 0.45); transition: filter 0.15s, transform 0.15s;
+  background: linear-gradient(180deg, #7a5af0 0%, #5b3fd0 100%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.28) inset, 0 6px 14px -6px rgba(110, 80, 230, 0.7);
+  border: 1px solid rgba(170, 150, 255, 0.45); transition: filter 0.15s, transform 0.15s;
 }
 .btn:hover { filter: brightness(1.12); }
 .btn:active { transform: translateY(1px); }
 
-.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 10px; padding: 2px; background: rgba(10, 14, 32, 0.35); gap: 2px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 10px; padding: 2px; background: rgba(0, 0, 0, 0.3); gap: 2px; }
 .seg > a, .seg > details > summary { padding: 5px 11px; font-size: 12px; border-radius: 8px; color: var(--text-2); cursor: pointer; list-style: none; }
 .seg > a:hover, .seg > details > summary:hover { background: var(--surface-2); color: var(--text); }
 .seg > a[aria-current="true"], .seg > details > summary.on, .seg > details[open] > summary {
-  background: linear-gradient(180deg, #1196c9, #0a74a6); color: #fff; font-weight: 600;
+  background: linear-gradient(180deg, #7a5af0, #5b3fd0); color: #fff; font-weight: 600;
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.25) inset;
 }
 summary::-webkit-details-marker { display: none; }
@@ -154,7 +155,7 @@ summary::-webkit-details-marker { display: none; }
 .pill { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 2px 9px 2px 7px; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-2); }
 
 /* Small legend / value chip used above charts */
-.chip { display: inline-flex; align-items: center; gap: 8px; border-radius: 8px; padding: 4px 10px; font-size: 12px; color: var(--text-2); background: rgba(10, 14, 32, 0.4); border: 1px solid var(--border); }
+.chip { display: inline-flex; align-items: center; gap: 8px; border-radius: 8px; padding: 4px 10px; font-size: 12px; color: var(--text-2); background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border); }
 
 /* ---------- Loading ---------- */
 .skeleton { border-radius: 14px; background: var(--surface); border: 1px solid var(--border); animation: skeleton-pulse 1.4s ease-in-out infinite; }
@@ -169,8 +170,8 @@ summary::-webkit-details-marker { display: none; }
 .splash {
   position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center;
   background:
-    radial-gradient(700px 420px at 80% 0%, rgba(20, 200, 235, 0.16), transparent 62%),
-    radial-gradient(640px 420px at 10% 100%, rgba(45, 105, 235, 0.20), transparent 64%),
+    radial-gradient(700px 420px at 80% 0%, rgba(139, 108, 255, 0.18), transparent 62%),
+    radial-gradient(640px 420px at 10% 100%, rgba(225, 85, 214, 0.12), transparent 64%),
     var(--page);
   animation: splash-out 0.55s ease 1.5s forwards;
 }
@@ -182,8 +183,8 @@ summary::-webkit-details-marker { display: none; }
 @keyframes greet-pop { from { opacity: 0; transform: scale(0.7); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .greet-logo { animation: none; } }
 
-.progress { width: 220px; height: 4px; border-radius: 999px; background: rgba(130, 160, 255, 0.16); overflow: hidden; }
-.progress > span { display: block; height: 100%; width: 40%; border-radius: 999px; background: linear-gradient(90deg, #1196c9, #5fd4f4); animation: progress-slide 1.3s ease-in-out infinite; }
+.progress { width: 220px; height: 4px; border-radius: 999px; background: rgba(255, 255, 255, 0.10); overflow: hidden; }
+.progress > span { display: block; height: 100%; width: 40%; border-radius: 999px; background: linear-gradient(90deg, #8b6cff, #e155d6); animation: progress-slide 1.3s ease-in-out infinite; }
 @keyframes progress-slide { 0% { transform: translateX(-110%); } 100% { transform: translateX(260%); } }
 @media (prefers-reduced-motion: reduce) { .progress > span { animation: none; width: 100%; } }
 

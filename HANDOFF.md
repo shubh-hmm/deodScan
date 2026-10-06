@@ -126,6 +126,12 @@ Starting with `pg_ctl` directly, as in the second line, runs the server detached
 
 Format: `YYYY-MM-DD — what changed — files — why/notes`
 
+- 2026-10-06 — **Less blue: neutral graphite theme with violet accents** (owner: "it looks more blue blue, the whole UI"). Frontend only; 0 credits.
+  - **Cause:** the navy base (page/cards/sidebar), blue-tinted borders and glows, and cyan-blue buttons, menu highlight and links all added up. The data blue (inflow) was lost in it.
+  - **Change** (`app/globals.css` and a few components): the base is now neutral graphite (page `#0c0c0f`, cards `#16161b`, sidebar `#101014`, borders white-based, faint violet/magenta backdrop glow). The UI accent (buttons, active menu item and time-range, links, focus, progress bar, icon badges) is the **brand violet**, matching the logo. Magnitude bars with no direction (top-wallet volume) are violet too.
+  - **Rule kept:** blue now appears **only** as data: inflow / IN / BUY, plus the blue share ramp of the inflow donut. Orange = outflow, aqua = net. Violet is chrome and never a data series. Do not use blue for chrome again.
+  - **Colour checks:** the series colours (blue/orange/aqua) and both share ramps were re-validated on the new surfaces `#16161b` and `#101014` with `validate_palette.js`: all pass.
+  - **Renames:** the CSS class `badge-icon cyan` is now `badge-icon brand`. The accent token is `--accent` = `#8b6cff`. `barStyle()` defaults to the `accent` tone.
 - 2026-10-06 — **Full data audit** (owner: "verify the data on our dashboard is correct and accurate, cross-verify it"). Result: **everything passes, 0 failures.** Cost: **2.58 Dune credits** (2.34 for the transfers aggregate, 0.24 for swaps; window 2026-09-25 → 2026-10-06).
   - **New reusable tool:** `npm run audit` (`scripts/audit.mjs`; read-only, no credits; `--no-chain` skips the blockchain sampling) and two Dune aggregate queries, `queries/dune/verify/08_audit_transfers.sql` and `09_audit_swaps.sql` (counts and exact raw sums per address/direction and per pool). It is documented in the README ("Data audit"). Latest full run: **40 passed, 0 failed, 5 informational.**
   - **What was verified, and how**

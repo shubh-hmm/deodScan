@@ -8,11 +8,11 @@ import { SERIES } from '@/lib/colors';
 import { compactNum } from '@/lib/format';
 
 // Text never wears a series colour; marks beside the text carry identity.
-const SURFACE = '#121a2c';
-const GRID = '#1f2a44';
-const AXIS = '#2c3858';
-const MUTED = '#8a93b5';
-const INK2 = '#c4cae0';
+const SURFACE = '#16161b';
+const GRID = '#26262e';
+const AXIS = '#353540';
+const MUTED = '#8e8d9b';
+const INK2 = '#cbcad4';
 
 const full = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
 

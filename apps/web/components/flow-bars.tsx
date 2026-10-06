@@ -26,7 +26,7 @@ export function ExchangeCards({ rows }: { rows: Row[] }) {
       {rows.map((r) => (
         <div key={r.exchange} className="card tile rise p-4">
           <div className="mb-3 flex items-center gap-3">
-            <span className="badge-icon cyan">{Icons.exchange}</span>
+            <span className="badge-icon brand">{Icons.exchange}</span>
             <div className="min-w-0 flex-1">
               <Link className="text-sm font-semibold text-ink hover:underline" href={`/${r.name}`}>{r.name}</Link>
               <div className="text-[11px] text-muted">

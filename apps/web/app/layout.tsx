@@ -41,7 +41,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               </div>
             </Link>
             <div className="mx-3 mt-3 flex items-center gap-2.5 rounded-xl border border-line bg-surface-2/50 px-3 py-2.5">
-              <span className="badge-icon cyan !h-8 !w-8">{Icons.chain}</span>
+              <span className="badge-icon brand !h-8 !w-8">{Icons.chain}</span>
               <div className="min-w-0 leading-tight">
                 <div className="whitespace-nowrap text-[13px] font-semibold">BNB Chain</div>
                 <div className="whitespace-nowrap text-[11px] text-muted">Read-only monitor</div>

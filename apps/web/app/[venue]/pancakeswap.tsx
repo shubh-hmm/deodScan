@@ -69,7 +69,7 @@ export default async function PancakePage({ searchParams }: { searchParams: Sear
           {pools.map((pl) => (
             <li key={pl.address} className="border-b border-line px-4 py-3 last:border-b-0">
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                <span className="badge-icon cyan !h-8 !w-8 text-[11px] font-bold">V{pl.version}</span>
+                <span className="badge-icon brand !h-8 !w-8 text-[11px] font-bold">V{pl.version}</span>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2 text-sm font-semibold">
                     PancakeSwap V{pl.version} · {pl.pair}

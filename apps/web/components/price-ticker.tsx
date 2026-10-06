@@ -67,7 +67,7 @@ export function PriceTicker({ initial }: { initial: PriceData | null }) {
 
   const Metric = ({ icon, label, children, cls = '' }: { icon: React.ReactNode; label: string; children: React.ReactNode; cls?: string }) => (
     <div className={`flex items-center gap-2.5 px-4 py-2 ${cls}`}>
-      <span className="badge-icon cyan !h-8 !w-8">{icon}</span>
+      <span className="badge-icon brand !h-8 !w-8">{icon}</span>
       <div className="leading-tight">
         <div className="text-[11px] text-muted">{label}</div>
         <div className="num text-[15px] font-semibold text-ink">{children}</div>
