@@ -7,7 +7,7 @@
 > code, config, queries, data, or decisions. Do not wait until the end of the session. Short entries
 > are fine; skipping them is not.
 
-Last updated: 2026-10-05
+Last updated: 2026-10-06
 
 ---
 
@@ -126,6 +126,11 @@ Starting with `pg_ctl` directly, as in the second line, runs the server detached
 
 Format: `YYYY-MM-DD — what changed — files — why/notes`
 
+- 2026-10-06 — Owner said "run it". The PC had been restarted again, so Postgres, the API, the web app and the worker were all down.
+  - **Restart:** started Postgres with `pg_ctl` (run detached through PowerShell `Start-Process`; it spends about 35 s in normal crash recovery before it accepts connections, so wait for "ready to accept connections" in `.pgdata/server.log`). The data was intact (4,682 transfers, 6,228 swaps, 2 exchanges). Then started the API, web and worker as detached processes. No port conflicts.
+  - **Catch-up:** the worker fetched the missed day 2026-10-05 by itself: transfers +3, swaps +173, 0 rejected, **0.45 credits**. Data now runs through **2026-10-06 00:00 UTC**. 2026-10-06 is fetched after 02:00 UTC on 2026-10-07.
+  - **MEXC balance question from 2026-10-05: resolved, exact.** Yesterday the chain showed MEXC at 24,350,233.0134 DEOD (we were 2,769.51 DEOD higher). After syncing 2026-10-05, the stored total is exactly 24,350,233.0134, so the gap was exactly that day's unsynced activity. Toobit matches the chain exactly (11,944,475.7613 DEOD, including a +1,000 transfer from 2026-10-05). Today's difference for MEXC (+3,697.59) is 2026-10-06's activity so far, not yet synced, which is expected by design. Free check: compare the chain balance with the stored total right after a sync; it will match for any address with no activity since 00:00 UTC.
+  - Worth knowing: the owner's PC has now been restarted twice (2026-10-05 and 2026-10-06). The restart steps (§5) work every time; the always-on options (start with Windows, or a small server) are still open.
 - 2026-10-05 — **Dashboard CSV export now includes PancakeSwap** (owner: "while downloading CSV from the dashboard I only see CEX transactions, not PancakeSwap"). **Cause:** the dashboard's "Export CSV" button pointed only at `/api-export/flows` (exchange flows). The swaps CSV existed but only on the PancakeSwap and Swaps pages. 0 credits.
   - **Fix:** the button is now a menu (`components/export-menu.tsx`) with three choices: **All activity** (exchange transfers + PancakeSwap swaps in one file), **Exchange flows only**, and **PancakeSwap swaps only**.
   - **New API:** `GET /api/activity` (`listActivity` in `packages/analytics`). Columns: `block_time, type (exchange|swap), venue, action (IN/OUT/BUY/SELL), wallet_address, counterparty, deod_amount, quote_amount, price, usd_value, tx_hash, evt_index, block_number, explorer_url`. For an exchange transfer `wallet_address` is the counterparty wallet; for a swap it is the transaction signer, and `counterparty` is the exchange address or the pool. Quote/price/USD are empty for transfers. The CSV proxy allow-list in `apps/web/app/api-export/[...path]/route.ts` includes `activity`. It is unlimited (up to 1,000,000 rows), like the other CSVs; the JSON form takes `limit` (default 100, max 1,000). Documented in the README.
@@ -147,7 +152,7 @@ Format: `YYYY-MM-DD — what changed — files — why/notes`
     - **To restore BitMart:** re-add the block to `config/deod.yaml`, restart (it re-seeds the address), then re-fetch with `npm run sync -- backfill --query exchange_transfers --from 2026-01-01 --window-days 92` (about 22 credits, ask the owner first), or re-import the archived CSV.
   - **Health check** (a scratch script, not kept): 3 services up; both sync queries `ok` through 2026-10-05 00:00; 0 rejected rows; for MEXC and Toobit the API matches the database at 24h/7d/30d/all (HTTP 200, 1–73 ms), the flows list and CSV exports are complete (3,699 and 983 rows), and PancakeSwap combined/V2/V3 swap counts match the database (6,228 / 1,305 / 4,923). All 11 pages at phone and desktop widths: 0 overflow, 0 console errors.
     - **Toobit's balance matches the chain exactly** (11,943,475.7613 DEOD).
-    - **MEXC's balance does not: on-chain is 2,769.51 DEOD LOWER than stored (IN − OUT).** The likely cause is MEXC withdrawals today (2026-10-05), which the daily sync has not fetched yet (it only fetches completed days). The size is normal for a day of MEXC activity. It is plausible but NOT proven: the free public BSC node refuses log queries (`limit exceeded`) and keeps no history, so the exact check was impossible. **To prove it:** after the 2026-10-06 ~02:00 UTC sync, today's data will be in. An exact check costs about 0.2 Dune credits (today's MEXC transfers); ask the owner first. Until then, treat MEXC as "unverified for today".
+    - **MEXC's balance does not: on-chain is 2,769.51 DEOD LOWER than stored (IN − OUT).** The likely cause is MEXC withdrawals today (2026-10-05), which the daily sync has not fetched yet (it only fetches completed days). The size is normal for a day of MEXC activity. It is plausible but NOT proven: the free public BSC node refuses log queries (`limit exceeded`) and keeps no history, so the exact check was impossible. **Resolved on 2026-10-06: see the newer entry. The gap was exactly the unsynced day.**
     - One "failed Dune run" is on record: run #1 on 2026-10-02, a bug in the credits column of the run log that was fixed the same day. The same window later succeeded. It is historical.
   - **PancakeSwap page:** the three grey technical notes (pool addresses and "factory()=V2 factory; getPair… works") were the stored proof that each address is the real DEOD/USDT pool. They are now a "Monitored pools" panel: version, pair, fee, "Verified on-chain", the address, a BscScan link, and the proof behind a "How this was verified" toggle.
   - **Checks:** typecheck is clean for the API and web, and 27/27 tests pass.
