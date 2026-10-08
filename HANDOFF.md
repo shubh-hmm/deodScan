@@ -7,7 +7,7 @@
 > code, config, queries, data, or decisions. Do not wait until the end of the session. Short entries
 > are fine; skipping them is not.
 
-Last updated: 2026-10-06
+Last updated: 2026-10-08
 
 ---
 
@@ -126,6 +126,11 @@ Starting with `pg_ctl` directly, as in the second line, runs the server detached
 
 Format: `YYYY-MM-DD — what changed — files — why/notes`
 
+- 2026-10-08 — Owner said "run it" (several times). The PC had been restarted again, so Postgres, the API, the web app and the worker were all down, and 2026-10-06 and 2026-10-07 were unsynced.
+  - **Restart:** same steps as before (§5): Postgres via `pg_ctl` run detached, waiting for "ready to accept connections" (it does crash recovery for about 35 s), then the API, web and worker as detached processes. The data was intact (4,685 transfers, 6,401 swaps, 2 exchanges). No port conflicts.
+  - **Catch-up (automatic):** the worker fetched both missed days, 0 rejected, 0 errors. Transfers: 2026-10-06 +14, 2026-10-07 +11. Swaps: 2026-10-06 +190, 2026-10-07 +238. Data now runs through **2026-10-08 00:00 UTC**. Total cost **8.72 credits** (see below).
+  - **Credit cost note:** the exchange-transfers query for 2026-10-06 cost **8.24 credits** for only 14 rows, against about 0.07–0.39 on other days. **Dune's cost follows execution time, not result size.** That run took 97 s; the normal 10–15 s runs cost under 0.4. The initial history load shows the same (81 s = 8.05 credits, 50 s = 5.21). So a slow or cold Dune execution costs up to about 8 credits no matter how little data returns. Nothing in our query changed. A normal day is about 0.5 credits; expect occasional spikes of about 8. It cannot be tuned from our side (the default `medium` performance tier is already the cheapest). If spikes become frequent, tell the owner. Lifetime credits recorded by the sync: transfers 31.26 + swaps 2.09 = 33.35, plus about 5.2 for the swap count and the audit aggregates.
+  - The owner's PC has now been restarted three times (2026-10-05, 2026-10-06, 2026-10-08). The always-on options (start with Windows, or a small server) are still open and are worth raising again.
 - 2026-10-06 — **Less blue: neutral graphite theme with violet accents** (owner: "it looks more blue blue, the whole UI"). Frontend only; 0 credits.
   - **Cause:** the navy base (page/cards/sidebar), blue-tinted borders and glows, and cyan-blue buttons, menu highlight and links all added up. The data blue (inflow) was lost in it.
   - **Change** (`app/globals.css` and a few components): the base is now neutral graphite (page `#0c0c0f`, cards `#16161b`, sidebar `#101014`, borders white-based, faint violet/magenta backdrop glow). The UI accent (buttons, active menu item and time-range, links, focus, progress bar, icon badges) is the **brand violet**, matching the logo. Magnitude bars with no direction (top-wallet volume) are violet too.
