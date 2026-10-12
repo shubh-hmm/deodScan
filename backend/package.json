@@ -8,6 +8,8 @@
     "packages/*"
   ],
   "scripts": {
+    "dev": "tsx scripts/dev.ts",
+    "dev:worker": "tsx scripts/dev.ts --worker",
     "db:dev": "node scripts/dev-postgres.mjs",
     "db:migrate": "tsx packages/db/src/cli-migrate.ts",
     "worker": "tsx worker/src/index.ts",

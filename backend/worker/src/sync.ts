@@ -173,6 +173,10 @@ export async function backfill(name: QueryName, from: Date, to: Date, windowDays
  * synced_until advances after each, so an interruption resumes at the first unsynced day.
  * Requires a prior backfill to set the checkpoint.
  */
+let stopRequested = false;
+/** After this, no new day window is started; a window that is already running is allowed to finish. */
+export function requestStop() { stopRequested = true; }
+
 export async function syncCompletedDays(name: QueryName, now = new Date()) {
   const { rows } = await getPool().query<{ synced_until: Date | null }>(
     'SELECT synced_until FROM dune_sync_state WHERE query_name = $1', [name],
@@ -182,7 +186,10 @@ export async function syncCompletedDays(name: QueryName, now = new Date()) {
   const windows = completedDayWindows(syncedUntil, now, SETTLE_MS);
   if (!windows.length) log.info({ query: name, syncedUntil: syncedUntil.toISOString() }, 'no completed day to sync yet');
   const results = [];
-  for (const w of windows) results.push(await runWindow(name, 'daily', w.start, w.end));
+  for (const w of windows) {
+    if (stopRequested) { log.warn({ query: name }, 'stop requested; the remaining days will be fetched next time'); break; }
+    results.push(await runWindow(name, 'daily', w.start, w.end));
+  }
   return results;
 }
 
@@ -190,7 +197,7 @@ export async function syncCompletedDays(name: QueryName, now = new Date()) {
 export async function syncAllCompletedDays() {
   return withSyncLock(async () => {
     let windows = 0;
-    for (const q of QUERIES) windows += (await syncCompletedDays(q)).length;
+    for (const q of QUERIES) { if (stopRequested) break; windows += (await syncCompletedDays(q)).length; }
     if (windows) await postProcess();
     return windows;
   });

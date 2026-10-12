@@ -11,3 +11,4 @@ out/
 frontend/next-env.d.ts
 *.tsbuildinfo
 logs/
+.dev.lock

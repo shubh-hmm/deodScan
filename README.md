@@ -37,7 +37,7 @@ G:\Monitor
 │   │   └── analytics/      The SQL behind every dashboard number
 │   ├── config/deod.yaml    All verified addresses (token, pools, exchanges)
 │   ├── queries/dune/       The SQL sent to Dune (verify/ holds the one-off checks)
-│   ├── scripts/            Maintenance tools: audit, remove-exchange, dune-run, dev-postgres
+│   ├── scripts/            dev.ts (the one-command backend), audit, remove-exchange, dune-run, dev-postgres
 │   ├── archive/            Data removed from the database, kept as CSV
 │   ├── .env                Secrets (DUNE_API_KEY, DATABASE_URL, ADMIN_TOKEN); git-ignored
 │   └── docker-compose.yml  PostgreSQL for a server deployment
@@ -56,7 +56,8 @@ G:\Monitor
 | From the root | Does |
 |---|---|
 | `npm run install:all` | `npm install` in `backend/` and in `frontend/` |
-| `npm run api` / `worker` / `web` | start the API / the sync worker / the dashboard |
+| `npm run dev:backend` / `dev:worker` / `dev:frontend` | the two-terminal commands above, forwarded from the root (backend with or without the worker; the dashboard) |
+| `npm run api` / `worker` / `web` | start the API / the sync worker / the dashboard on their own |
 | `npm run db:dev` / `db:migrate` | start the local database / apply migrations |
 | `npm run sync -- daily` | fetch any finished days once |
 | `npm run typecheck` / `test` / `audit` | check types (both parts) / unit tests / data audit |
@@ -114,20 +115,34 @@ After the PC has been off, the worker fetches any finished days it missed by its
 
 The scripts behind them are `scripts/start.ps1` and `scripts/stop.ps1`. Run from the project root, `G:\Monitor`.
 
-## Running by hand in VS Code
+## Running by hand in VS Code (two terminals)
 
-Open the folder `G:\Monitor` in VS Code (File > Open Folder). Each new terminal (Terminal > New Terminal, or the **+** button) starts in `G:\Monitor`. Use one terminal per part and start them in this order:
+Open the folder `G:\Monitor` in VS Code and open two terminals (Terminal > New Terminal, then the **+** button).
 
-| # | Terminal | Command | Wait for | Notes |
-|---|---|---|---|---|
-| 1 | Database | `npm run db:dev` | `Postgres running: postgres://...` | Start this first. After a PC restart allow up to a minute. The line "database deod_monitor already exists" is normal. |
-| 2 | API | `npm run api` | `Server listening at http://127.0.0.1:4000` | |
-| 3 | Dashboard | `npm run web` | `Ready in ...`, then open http://localhost:3000 | |
-| 4 | Worker (optional) | `npm run worker` | `worker started` | Fetches any finished days it missed. Uses Dune credits (usually under 1 per day). Leave it out to use none. |
+| Terminal | Folder | Command | What it starts |
+|---|---|---|---|
+| **Backend** | `G:\Monitor\backend` | `npm run dev` | PostgreSQL, then the API on port 4000. **The Dune worker is off.** |
+| **Frontend** | `G:\Monitor\frontend` | `npm run dev` | The dashboard at http://localhost:3000 |
 
-The same commands also work from inside the folders: `cd backend` then `npm run api` / `worker` / `db:dev`; `cd frontend` then `npm run dev`.
+Start the backend first. (If you start the dashboard first it still works; it just tells you the backend is not up yet.)
 
-**To stop:** press `Ctrl+C` in each terminal, the database last, and wait for it to finish. Or run `.\stop.cmd` from any terminal: it stops everything and shuts the database down cleanly. Do not close the database terminal with the trash-can button while it is running; that kills the database abruptly (it recovers on the next start, but takes longer).
+**The Dune worker is optional.** It is the only part that spends Dune credits (it fetches any finished days it missed; usually under 1 credit per day, occasionally about 8). It only starts if you ask for it: run `npm run dev:worker` in the backend terminal instead of `npm run dev`. (Also accepted: `DEV_WORKER=1`, or `npm run dev -- --worker`; in PowerShell prefer `dev:worker`, because PowerShell swallows the `--`.)
+
+**To stop:** press `Ctrl+C` once in each terminal. The backend stops the worker first (a sync that is already running gets up to 20 seconds to finish, and no new day is started), then the API, then the database, cleanly. Wait for `Everything stopped cleanly`. A second `Ctrl+C` forces it. (In Command Prompt, as opposed to the PowerShell VS Code uses, Windows also asks "Terminate batch job (Y/N)?" after Ctrl+C; let the backend finish before you answer.)
+
+**It protects you from duplicates:**
+
+| Situation | What happens |
+|---|---|
+| `npm run dev` already running in `backend/` | The second one refuses and says which process is running. |
+| The database or the API is already running (started another way) | It reuses it, and will never stop what it did not start. |
+| A worker is already running | No second worker is started. |
+| Dashboard port 3000 already in use | The frontend refuses and tells you how to stop the old one. |
+| A previous run crashed and left its lock file | The stale lock is detected and replaced. |
+
+Settings are unchanged: `backend/.env` for the backend, and `frontend/.env.local` (optional, see `frontend/.env.example`). The backend command is `backend/scripts/dev.ts`; the frontend command is `frontend/scripts/dev.mjs`.
+
+The older commands all still work: `npm run db:dev`, `api`, `worker`, `web` (one part at a time, from the project root), and `run.cmd` / `stop.cmd` (everything in the background). `.\stop.cmd` also stops a stack started with `npm run dev`.
 
 ## Running locally
 

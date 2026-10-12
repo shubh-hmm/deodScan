@@ -8,7 +8,12 @@ let pool: pg.Pool | undefined;
 
 export function getPool(): pg.Pool {
   // UTC session: date_trunc buckets must align with on-chain (UTC) block timestamps.
-  pool ??= new pg.Pool({ connectionString: loadEnv().DATABASE_URL, max: 10, options: '-c TimeZone=UTC' });
+  if (!pool) {
+    pool = new pg.Pool({ connectionString: loadEnv().DATABASE_URL, max: 10, options: '-c TimeZone=UTC' });
+    // An idle connection that the server drops (database restart or shutdown) emits 'error' on the pool. Unhandled, that crashes the
+    // whole process with a stack trace. Handled, the pool just discards the connection and opens a new one on the next query.
+    pool.on('error', (err) => console.error(`[db pool] an idle database connection was lost: ${err.message}`));
+  }
   return pool;
 }
 

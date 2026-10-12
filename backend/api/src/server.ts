@@ -3,7 +3,7 @@ import rateLimit from '@fastify/rate-limit';
 import { timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { loadConfig, loadEnv } from '@deod/config';
-import { getPool, migrate, refreshWalletSummary, deriveExchangeFlows, seedFromConfig } from '@deod/db';
+import { closePool, getPool, migrate, refreshWalletSummary, deriveExchangeFlows, seedFromConfig } from '@deod/db';
 import * as A from '@deod/analytics';
 import { syncAllCompletedDays, SyncBusyError } from '@deod/worker';
 import { toCsv } from './csv.js';
@@ -255,3 +255,17 @@ app.register(async (admin) => {
 await migrate(db);
 await seedFromConfig(db);
 await app.listen({ port: env.API_PORT, host: process.env.API_HOST ?? '127.0.0.1' });
+
+// Graceful shutdown: stop accepting requests, let running ones finish, close the database pool. Triggered by Ctrl+C / SIGTERM /
+// Ctrl+Break, or by a 'shutdown' message from `npm run dev` (signals do not work between processes on Windows, messages do).
+let closing = false;
+async function shutdown(reason: string) {
+  if (closing) return;
+  closing = true;
+  app.log.info({ reason }, 'shutting down');
+  try { await app.close(); } catch (err) { app.log.error({ err }, 'error while closing the server'); }
+  await closePool();
+  process.exit(0);
+}
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGBREAK'] as const) process.on(sig, () => void shutdown(sig));
+process.on('message', (m) => { if (m === 'shutdown') void shutdown('asked by the parent process'); });

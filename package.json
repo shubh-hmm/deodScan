@@ -3,6 +3,9 @@
   "private": true,
   "description": "DEODScan, a read-only DEOD on-chain monitor. frontend/ is the dashboard; backend/ is the API, the sync worker and the database code. This file only forwards commands.",
   "scripts": {
+    "dev:backend": "npm --prefix backend run dev --",
+    "dev:worker": "npm --prefix backend run dev:worker",
+    "dev:frontend": "npm --prefix frontend run dev",
     "install:all": "npm --prefix backend install && npm --prefix frontend install",
     "db:dev": "npm --prefix backend run db:dev",
     "db:migrate": "npm --prefix backend run db:migrate",

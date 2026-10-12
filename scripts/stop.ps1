@@ -35,6 +35,6 @@ if (Get-NetTCPConnection -LocalPort 5433 -State Listen -ErrorAction SilentlyCont
   Say 'database was not running'
 }
 # A database started by hand with 'npm run db:dev' (after the clean stop above, so the database is never force-killed; this only removes the leftover wrapper window/process)
-Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -match 'dev-postgres' } | ForEach-Object { Kill-Tree $_.ProcessId }
+Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -match 'dev-postgres|scripts[\\/]dev\.ts' } | ForEach-Object { Kill-Tree $_.ProcessId }
 
 Write-Host 'Done.' -ForegroundColor Green
