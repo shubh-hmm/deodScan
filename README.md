@@ -114,6 +114,21 @@ After the PC has been off, the worker fetches any finished days it missed by its
 
 The scripts behind them are `scripts/start.ps1` and `scripts/stop.ps1`. Run from the project root, `G:\Monitor`.
 
+## Running by hand in VS Code
+
+Open the folder `G:\Monitor` in VS Code (File > Open Folder). Each new terminal (Terminal > New Terminal, or the **+** button) starts in `G:\Monitor`. Use one terminal per part and start them in this order:
+
+| # | Terminal | Command | Wait for | Notes |
+|---|---|---|---|---|
+| 1 | Database | `npm run db:dev` | `Postgres running: postgres://...` | Start this first. After a PC restart allow up to a minute. The line "database deod_monitor already exists" is normal. |
+| 2 | API | `npm run api` | `Server listening at http://127.0.0.1:4000` | |
+| 3 | Dashboard | `npm run web` | `Ready in ...`, then open http://localhost:3000 | |
+| 4 | Worker (optional) | `npm run worker` | `worker started` | Fetches any finished days it missed. Uses Dune credits (usually under 1 per day). Leave it out to use none. |
+
+The same commands also work from inside the folders: `cd backend` then `npm run api` / `worker` / `db:dev`; `cd frontend` then `npm run dev`.
+
+**To stop:** press `Ctrl+C` in each terminal, the database last, and wait for it to finish. Or run `.\stop.cmd` from any terminal: it stops everything and shuts the database down cleanly. Do not close the database terminal with the trash-can button while it is running; that kills the database abruptly (it recovers on the next start, but takes longer).
+
 ## Running locally
 
 ```bash
