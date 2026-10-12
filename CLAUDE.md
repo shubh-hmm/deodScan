@@ -9,6 +9,11 @@ This repo has a running handoff at [HANDOFF.md](HANDOFF.md). It applies to **eve
 3. Keep the "Last updated" date current. Use absolute dates.
 4. Do not delete earlier log entries. Correct any facts that turn out to be wrong.
 
+## Layout (details in HANDOFF.md §2)
+
+- `frontend/` is the Next.js dashboard and `backend/` holds the API, the sync worker, the shared libraries, the config and the SQL. They are separate npm projects that talk only over HTTP. Never import backend code into the frontend.
+- Run commands from the project root (`npm run api`, `worker`, `web`, `audit`, `typecheck`, `test`; `run.cmd` / `stop.cmd` start and stop everything).
+
 ## Project rules (summary; details in HANDOFF.md §3–4)
 
 - BNB Chain only. Never invent addresses, tables or columns. Verify with real Dune data first.

@@ -3,7 +3,7 @@
 //
 //   node scripts/remove-exchange.mjs <slug> [--dry-run]
 //
-// Steps (one transaction): archive the exchange's token_transfers to archive/<slug>-<date>.csv, then delete its
+// Steps (one transaction): archive the exchange's token_transfers to backend/archive/<slug>-<date>.csv, then delete its
 // exchange_flows, token_transfers, exchange_addresses and exchanges rows, and refresh the wallet summary.
 // It refuses to run if any of the exchange's transfers is shared with another monitored exchange, because deleting
 // those rows would change the other exchange's totals.

@@ -23,7 +23,7 @@ quote_tokens:
 
 # Exchange-controlled addresses on BNB Chain ONLY. Each entry is ONE monitored address, not the exchange's full wallet set.
 # BitMart was REMOVED on 2026-10-05 by owner decision (its address 0xa23ef2319ba4c933ebfdba80c332664a6cb13f1a, Dune label
-# "BitMart 16", had no DEOD activity after 2026-08-19). Its stored history is archived in archive/bitmart-removed-2026-10-05.csv.
+# "BitMart 16", had no DEOD activity after 2026-08-19). Its stored history is archived in backend/archive/bitmart-removed-2026-10-05.csv.
 # The discovery notes below still list the BitMart addresses that were checked, as historical evidence.
 # Discovery (verify/06, 2026-10-02): of the Dune-labelled BNB addresses for MEXC (21), BitMart (29) and Cobo (14),
 # only these had DEOD activity. Others received 5-15 DEOD total, never sent any, and are not monitored:

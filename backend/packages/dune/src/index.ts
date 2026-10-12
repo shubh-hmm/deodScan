@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { repoRoot } from '@deod/config';
+import { backendRoot } from '@deod/config';
 
 const API = 'https://api.dune.com/api/v1';
 const TERMINAL = new Set([
@@ -139,7 +139,7 @@ export function renderSql(template: string, params: Record<string, string>): str
 
 export function loadQuery(name: string): string {
   if (!/^[a-z0-9_]+$/.test(name)) throw new Error(`invalid query name ${name}`);
-  return readFileSync(resolve(repoRoot(), 'queries/dune', `${name}.sql`), 'utf8');
+  return readFileSync(resolve(backendRoot(), 'queries/dune', `${name}.sql`), 'utf8');
 }
 
 /** Date -> 'YYYY-MM-DD HH:MM:SS' (UTC) as expected by the SQL templates. */

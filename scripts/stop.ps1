@@ -26,8 +26,8 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 Say "stopped $killed process group(s) (dashboard, API, worker)"
 
 # The database: a clean shutdown, so the next start is quick
-$pgctl = Join-Path $root 'node_modules\@embedded-postgres\windows-x64\native\bin\pg_ctl.exe'
-$data = Join-Path $root '.pgdata'
+$pgctl = Join-Path $root 'backend\node_modules\@embedded-postgres\windows-x64\native\bin\pg_ctl.exe'
+$data = Join-Path $root 'backend\.pgdata'
 if (Get-NetTCPConnection -LocalPort 5433 -State Listen -ErrorAction SilentlyContinue) {
   & $pgctl -D $data stop -m fast -w -t 60 2>&1 | Out-Null
   Say 'database stopped cleanly'

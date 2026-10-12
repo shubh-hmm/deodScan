@@ -59,13 +59,13 @@ const ConfigSchema = z.object({
 
 export type DeodConfig = z.infer<typeof ConfigSchema>;
 
-/** Walks up from this file to the repo root (the directory holding config/deod.yaml). */
-export function repoRoot(): string {
+/** Walks up from this file to the backend folder (the directory holding config/deod.yaml, queries/ and .env). */
+export function backendRoot(): string {
   let dir = dirname(fileURLToPath(import.meta.url));
   for (;;) {
     if (existsSync(resolve(dir, 'config/deod.yaml'))) return dir;
     const parent = dirname(dir);
-    if (parent === dir) throw new Error('Could not locate repo root (config/deod.yaml)');
+    if (parent === dir) throw new Error('Could not locate the backend folder (config/deod.yaml)');
     dir = parent;
   }
 }
@@ -74,7 +74,7 @@ let cached: DeodConfig | undefined;
 
 export function loadConfig(): DeodConfig {
   if (cached) return cached;
-  const raw = parse(readFileSync(resolve(repoRoot(), 'config/deod.yaml'), 'utf8'));
+  const raw = parse(readFileSync(resolve(backendRoot(), 'config/deod.yaml'), 'utf8'));
   cached = ConfigSchema.parse(raw);
   return cached;
 }
@@ -90,7 +90,7 @@ const EnvSchema = z.object({
 export type Env = z.infer<typeof EnvSchema>;
 
 export function loadEnv(): Env {
-  dotenv.config({ path: resolve(repoRoot(), '.env'), quiet: true });
+  dotenv.config({ path: resolve(backendRoot(), '.env'), quiet: true });
   return EnvSchema.parse(process.env);
 }
 

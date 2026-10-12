@@ -25,20 +25,20 @@ function Wait-Until($seconds, [scriptblock]$test) {
 Write-Host "DEODScan: starting from $root" -ForegroundColor White
 
 # ---- checks -------------------------------------------------------------------------------------
-if (-not (Test-Path (Join-Path $root 'node_modules'))) {
-  Step 'First run: installing packages (one time, a few minutes)'
-  npm install
+if (-not (Test-Path (Join-Path $root 'backend\node_modules')) -or -not (Test-Path (Join-Path $root 'frontend\node_modules'))) {
+  Step 'First run: installing packages for the backend and the frontend (one time, a few minutes)'
+  npm run install:all
 }
-if (-not (Test-Path (Join-Path $root '.env'))) {
-  throw ".env is missing. Copy .env.example to .env and fill in DUNE_API_KEY, DATABASE_URL and ADMIN_TOKEN."
+if (-not (Test-Path (Join-Path $root 'backend\.env'))) {
+  throw "backend\.env is missing. Copy backend\.env.example to backend\.env and fill in DUNE_API_KEY, DATABASE_URL and ADMIN_TOKEN."
 }
-$envText = Get-Content (Join-Path $root '.env') -Raw
-if ($envText -notmatch '(?m)^DUNE_API_KEY=\S+') { Write-Host "    WARNING: DUNE_API_KEY is empty in .env; the worker cannot fetch new data." -ForegroundColor Yellow }
+$envText = Get-Content (Join-Path $root 'backend\.env') -Raw
+if ($envText -notmatch '(?m)^DUNE_API_KEY=\S+') { Write-Host "    WARNING: DUNE_API_KEY is empty in backend\.env; the worker cannot fetch new data." -ForegroundColor Yellow }
 
 # ---- 1. database --------------------------------------------------------------------------------
 Step 'Database (PostgreSQL on port 5433)'
-$data = Join-Path $root '.pgdata'
-$pgctl = Join-Path $root 'node_modules\@embedded-postgres\windows-x64\native\bin\pg_ctl.exe'
+$data = Join-Path $root 'backend\.pgdata'
+$pgctl = Join-Path $root 'backend\node_modules\@embedded-postgres\windows-x64\native\bin\pg_ctl.exe'
 if (-not (Test-Path (Join-Path $data 'PG_VERSION'))) {
   throw "The database has not been created yet. Run 'npm run db:dev' once (wait for 'Postgres running', then press Ctrl+C), then 'npm run db:migrate', then run.cmd again."
 }

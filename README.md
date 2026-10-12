@@ -15,9 +15,55 @@ Dune (BNB Chain) ──► worker (sync from Dune, check rows, write to DB) ─�
 
 Only the backend talks to Dune. The browser talks only to the web app, and the web app calls the API from the server.
 
+## Project layout
+
+The project is two independent parts that talk only over HTTP.
+
+```
+G:\Monitor
+├── frontend/               The dashboard (Next.js). Its own package.json and node_modules.
+│   ├── app/                Pages: dashboard, exchanges, PancakeSwap, flows, swaps, wallets, status
+│   ├── components/         Charts, tables, navigation, price bar, greeting
+│   └── lib/                API client, number formatting, colours
+│
+├── backend/                Everything that touches data. Its own package.json and node_modules.
+│   ├── api/                Fastify HTTP API (port 4000): reads PostgreSQL, serves the dashboard and CSV exports
+│   ├── worker/             Daily sync: Dune -> validate -> PostgreSQL
+│   ├── packages/           Libraries shared by the API and the worker
+│   │   ├── config/         Loads config/deod.yaml and .env
+│   │   ├── core/           Pure logic: amount maths, validation, classification (unit-tested)
+│   │   ├── db/             PostgreSQL access and migrations/
+│   │   ├── dune/           Dune API client
+│   │   └── analytics/      The SQL behind every dashboard number
+│   ├── config/deod.yaml    All verified addresses (token, pools, exchanges)
+│   ├── queries/dune/       The SQL sent to Dune (verify/ holds the one-off checks)
+│   ├── scripts/            Maintenance tools: audit, remove-exchange, dune-run, dev-postgres
+│   ├── archive/            Data removed from the database, kept as CSV
+│   ├── .env                Secrets (DUNE_API_KEY, DATABASE_URL, ADMIN_TOKEN); git-ignored
+│   └── docker-compose.yml  PostgreSQL for a server deployment
+│
+├── docs/                   The original project brief
+├── scripts/                start.ps1 and stop.ps1 (used by run.cmd and stop.cmd)
+├── run.cmd  stop.cmd       Start and stop everything (Windows)
+├── package.json            Only forwards commands to backend/ and frontend/ (no code, no dependencies)
+├── README.md  HANDOFF.md  CLAUDE.md
+```
+
+**How the parts connect:** `worker` fetches from Dune and writes to PostgreSQL; `api` reads PostgreSQL and exposes `/api/*`; `frontend` calls the API from its server (never from the browser) and renders the pages. The frontend shares no code with the backend and imports none of it. Its one setting is `API_BASE_URL` (default `http://localhost:4000`, see `frontend/.env.example`).
+
+**Commands** can be run from the project root (they forward to the right folder) or from inside `backend/` or `frontend/`:
+
+| From the root | Does |
+|---|---|
+| `npm run install:all` | `npm install` in `backend/` and in `frontend/` |
+| `npm run api` / `worker` / `web` | start the API / the sync worker / the dashboard |
+| `npm run db:dev` / `db:migrate` | start the local database / apply migrations |
+| `npm run sync -- daily` | fetch any finished days once |
+| `npm run typecheck` / `test` / `audit` | check types (both parts) / unit tests / data audit |
+
 ## Verified configuration
 
-All addresses live in [`config/deod.yaml`](config/deod.yaml). Each entry records how it was checked.
+All addresses live in [`backend/config/deod.yaml`](backend/config/deod.yaml). Each entry records how it was checked.
 
 | Item | Address | Evidence |
 |---|---|---|
@@ -29,7 +75,7 @@ All addresses live in [`config/deod.yaml`](config/deod.yaml). Each entry records
 
 - **The V2 and V3 labels in the original brief were swapped.** The table above shows the corrected labels.
 - **Other exchange addresses were checked and left out.** We looked at every address Dune labels on BNB Chain for MEXC, BitMart and Cobo. Apart from the two above, each one only ever received 5–15 DEOD in total and never sent any. They're listed in the config but not monitored.
-- **BitMart was removed on 2026-10-05** (owner decision; its address had no DEOD activity after 2026-08-19). Its stored history is archived in `archive/bitmart-removed-2026-10-05.csv`. `node scripts/remove-exchange.mjs <slug>` removes an exchange the same way: it archives first and refuses if any transfer is shared with another exchange.
+- **BitMart was removed on 2026-10-05** (owner decision; its address had no DEOD activity after 2026-08-19). Its stored history is archived in `backend/archive/bitmart-removed-2026-10-05.csv`. `node scripts/remove-exchange.mjs <slug>` removes an exchange the same way: it archives first and refuses if any transfer is shared with another exchange.
 - **The flow data is complete.** For every monitored address, IN minus OUT matched its on-chain DEOD balance exactly (checked 2026-10-02), so the stored history has no gaps.
 
 **Coverage:** this monitors the configured addresses only. It does not necessarily include every wallet each exchange controls.
@@ -66,16 +112,16 @@ Options: `.\run.cmd -NoWorker` (do not start the worker, so no Dune credits are 
 
 After the PC has been off, the worker fetches any finished days it missed by itself, usually for well under 1 Dune credit per day. Nothing is synced while the PC is off, and nothing restarts on its own after a reboot.
 
-The scripts behind them are `scripts/start.ps1` and `scripts/stop.ps1`.
+The scripts behind them are `scripts/start.ps1` and `scripts/stop.ps1`. Run from the project root, `G:\Monitor`.
 
 ## Running locally
 
 ```bash
-npm install
-cp .env.example .env               # set DUNE_API_KEY, DATABASE_URL, ADMIN_TOKEN
+npm run install:all                 # installs backend/ and frontend/ (one time)
+cp backend/.env.example backend/.env   # set DUNE_API_KEY, DATABASE_URL, ADMIN_TOKEN
 
 npm run db:dev                     # local Postgres on :5433 (or: docker compose up -d postgres)
-npm run db:migrate                 # create the schema and load addresses/pools from config/deod.yaml
+npm run db:migrate                 # create the schema and load addresses/pools from backend/config/deod.yaml
 
 # One-off history load (resumes from where it stopped if interrupted)
 npm run sync -- backfill --query exchange_transfers --from 2026-01-01 --window-days 92
@@ -91,7 +137,7 @@ npm run web                        # dashboard on :3000
 
 ## Dune queries and cost
 
-The SQL lives in [`queries/dune/`](queries/dune/) and runs through `POST /v1/sql/execute`, which needs only a Read-scope API key. The `verify/` subfolder holds the one-off checks used to confirm the setup.
+The SQL lives in [`backend/queries/dune/`](backend/queries/dune/) and runs through `POST /v1/sql/execute`, which needs only a Read-scope API key. The `verify/` subfolder holds the one-off checks used to confirm the setup.
 
 | Query | Source table | Purpose |
 |---|---|---|
@@ -127,7 +173,7 @@ Avoid joining `tokens.transfers` to label tables: one exploratory query that did
 3. **Database vs blockchain:** about 60 transfers and 80 swaps are sampled and compared with the on-chain receipts (addresses, exact amounts, block, timestamp, buy/sell side, and that the stored trader is the transaction signer).
 4. **Balances:** stored IN − OUT against the live on-chain balance of each monitored address. A small difference is expected while the current UTC day is not yet synced.
 5. **Prices:** each pool's on-chain price against CoinGecko and our last stored trade.
-6. **Dune aggregates:** counts and exact sums from `queries/dune/verify/08_audit_transfers.sql` and `09_audit_swaps.sql`. Run them first with `node scripts/dune-run.mjs <file> --start "…" --end "…"` (about 2.6 credits for an 11-day window); the audit reads `.dune-output/`.
+6. **Dune aggregates:** counts and exact sums from `backend/queries/dune/verify/08_audit_transfers.sql` and `09_audit_swaps.sql`. Run them first from `backend/` with `node scripts/dune-run.mjs queries/dune/verify/<file> --start "…" --end "…"` (about 2.6 credits for an 11-day window); the audit reads `.dune-output/`.
 
 ## API
 

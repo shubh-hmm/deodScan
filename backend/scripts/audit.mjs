@@ -308,7 +308,7 @@ if (NO_CHAIN) info('skipped (--no-chain)'); else {
 head('F. Dune aggregate cross-check (counts and exact raw sums)');
 {
   const tf = resolve(ROOT, '.dune-output/08_audit_transfers.json'), sf = resolve(ROOT, '.dune-output/09_audit_swaps.json');
-  if (!existsSync(tf) || !existsSync(sf)) info('Dune aggregates not found; run queries/dune/verify/08 and 09 with scripts/dune-run.mjs first');
+  if (!existsSync(tf) || !existsSync(sf)) info('Dune aggregates not found; run backend/queries/dune/verify/08 and 09 with backend/scripts/dune-run.mjs first');
   else {
     const T = JSON.parse(readFileSync(tf, 'utf8')), S = JSON.parse(readFileSync(sf, 'utf8'));
     const start = T.params.start_time.replace(' ', 'T') + 'Z', end = T.params.end_time.replace(' ', 'T') + 'Z';

@@ -8,6 +8,6 @@ out/
 *.log
 .dune-output/
 .pgdata/
-apps/web/next-env.d.ts
+frontend/next-env.d.ts
 *.tsbuildinfo
 logs/

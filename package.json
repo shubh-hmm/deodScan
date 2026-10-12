@@ -1,39 +1,19 @@
 {
-  "name": "deod-monitor",
+  "name": "deodscan",
   "private": true,
-  "type": "module",
-  "workspaces": [
-    "packages/*",
-    "apps/*"
-  ],
+  "description": "DEODScan, a read-only DEOD on-chain monitor. frontend/ is the dashboard; backend/ is the API, the sync worker and the database code. This file only forwards commands.",
   "scripts": {
-    "db:dev": "node scripts/dev-postgres.mjs",
-    "db:migrate": "tsx packages/db/src/cli-migrate.ts",
-    "worker": "tsx apps/worker/src/index.ts",
-    "sync": "tsx apps/worker/src/cli.ts",
-    "api": "tsx apps/api/src/server.ts",
-    "api:dev": "tsx watch apps/api/src/server.ts",
-    "web": "npm run dev -w @deod/web",
-    "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run",
-    "audit": "node scripts/audit.mjs"
-  },
-  "devDependencies": {
-    "@types/node": "^26.6.4",
-    "@types/pg": "^8.23.1",
-    "embedded-postgres": "^18.4.0-beta.17",
-    "tsx": "^4.23.15",
-    "typescript": "^5.9.3",
-    "vitest": "^5.0.3"
-  },
-  "dependencies": {
-    "@fastify/rate-limit": "^11.2.0",
-    "decimal.js": "^10.6.0",
-    "dotenv": "^18.0.5",
-    "fastify": "^5.12.5",
-    "pg": "^8.23.1",
-    "pino": "^10.3.1",
-    "yaml": "^2.9.1",
-    "zod": "^4.6.5"
+    "install:all": "npm --prefix backend install && npm --prefix frontend install",
+    "db:dev": "npm --prefix backend run db:dev",
+    "db:migrate": "npm --prefix backend run db:migrate",
+    "api": "npm --prefix backend run api",
+    "api:dev": "npm --prefix backend run api:dev",
+    "worker": "npm --prefix backend run worker",
+    "sync": "npm --prefix backend run sync --",
+    "web": "npm --prefix frontend run dev",
+    "web:build": "npm --prefix frontend run build",
+    "typecheck": "npm --prefix backend run typecheck && npm --prefix frontend run typecheck",
+    "test": "npm --prefix backend run test",
+    "audit": "npm --prefix backend run audit --"
   }
 }

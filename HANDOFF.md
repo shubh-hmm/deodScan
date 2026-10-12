@@ -33,23 +33,29 @@ It required phased delivery (§29): verify addresses → Dune queries → Dune A
 | `database/migrations/` | `packages/db/migrations/` | Migrations live inside the db package |
 | Trader / sender | Trader = `tx_from` | Dune's `taker` is a router contract in ~74% of swaps (brief §7 warned about this) |
 
-## 2. Repo map
+## 2. Repo map (layout since 2026-10-12: frontend/ and backend/ are separate projects)
 
 | Path | What it is |
 |---|---|
-| `config/deod.yaml` | All verified addresses (token, pools, exchanges) + how each was checked |
-| `packages/config` | Loads/validates `deod.yaml` |
-| `packages/core` | Shared domain logic (+ `test/core.test.ts`) |
-| `packages/db` | Postgres client, migrations (`001_init.sql`, `002_backfill_cursor.sql`) |
-| `packages/dune` | Dune API client (`POST /v1/sql/execute`) |
-| `packages/analytics` | Aggregation queries used by the API |
-| `apps/worker` | Sync loop (`index.ts`), sync logic (`sync.ts`), backfill CLI (`cli.ts`) |
-| `apps/api` | Fastify server (`server.ts`), CSV export (`csv.ts`) |
-| `apps/web` | Next.js dashboard (overview, flows, swaps, wallets, wallet/[address], [venue], search, status) |
-| `queries/dune/` | Production SQL (`exchange_transfers.sql`, `pancakeswap_swaps.sql`); `verify/` = one-off checks |
-| `scripts/` | `dev-postgres.mjs` (local PG on :5433), `dune-run.mjs` (run a query file against Dune) |
+| `frontend/` | The dashboard (Next.js 16, React 19, Tailwind 4, Recharts). Standalone project: own `package.json`, `package-lock.json`, `node_modules`. Imports nothing from the backend; talks to the API over HTTP only (`API_BASE_URL`, default `http://localhost:4000`). `app/` pages, `components/`, `lib/` (`api.ts`, `format.ts`, `colors.ts`, `series.ts`, `site.ts` for the greeting name and quotes). |
+| `backend/` | Standalone project (npm workspaces: `api`, `worker`, `packages/*`; own `package.json`, lockfile, `node_modules`). |
+| `backend/api/` | Fastify API (`src/server.ts`, `src/price.ts`, `src/csv.ts`) on port 4000. |
+| `backend/worker/` | Daily Dune sync (`src/index.ts` loop, `src/sync.ts`, `src/cli.ts`). Also imported by the API as `@deod/worker` for the admin sync endpoint. |
+| `backend/packages/config` | Loads `config/deod.yaml` and `.env` (`backendRoot()` finds the backend folder by walking up to `config/deod.yaml`). |
+| `backend/packages/core` | Pure logic and the unit tests (`test/core.test.ts`). |
+| `backend/packages/db` | PostgreSQL access, migrations (`migrations/`), `deriveExchangeFlows`, wallet summary. |
+| `backend/packages/dune` | Dune API client and SQL template rendering. |
+| `backend/packages/analytics` | The SQL behind every dashboard number. |
+| `backend/config/deod.yaml` | All verified addresses (token, pools, exchanges) and how each was checked. |
+| `backend/queries/dune/` | Production SQL (`exchange_transfers.sql`, `pancakeswap_swaps.sql`); `verify/` = one-off checks (08/09 are the audit aggregates). |
+| `backend/scripts/` | `audit.mjs` (`npm run audit`), `remove-exchange.mjs`, `dune-run.mjs`, `dev-postgres.mjs`. |
+| `backend/archive/` | Data removed from the database, kept as CSV (BitMart's history). |
+| `backend/.env`, `backend/.pgdata/`, `backend/.dune-output/` | Secrets, local database files, Dune query outputs. All git-ignored. |
+| `docs/ORIGINAL_BRIEF.md` | The owner's original spec. |
+| `scripts/start.ps1`, `scripts/stop.ps1`, `run.cmd`, `stop.cmd` | Start and stop everything on Windows (see §5). |
+| root `package.json` | Thin: forwards commands to `backend/` and `frontend/` (`npm run api`, `worker`, `web`, `sync`, `audit`, `typecheck`, `test`, `install:all`...). No code, no dependencies. |
 
-Note: `queries/dune/exchange_flows.sql` exists but the README lists only the two queries above, so it may be a leftover. Check before relying on it.
+**Old paths in the log:** entries dated before 2026-10-12 use the old layout. Map: `apps/web` → `frontend`; `apps/api` → `backend/api`; `apps/worker` → `backend/worker`; `packages/*` → `backend/packages/*`; `config/`, `queries/`, `archive/`, `scripts/{audit,dune-run,remove-exchange,dev-postgres}` → under `backend/`; root `.env`, `.pgdata/`, `.dune-output/` → under `backend/`; `.env.example` → `backend/.env.example`.
 
 ## 3. Key decisions & verified facts (do not re-litigate)
 
@@ -80,10 +86,10 @@ Note: `queries/dune/exchange_flows.sql` exists but the README lists only the two
   - Worker, which checks hourly.
   - API on :4000 and web on :3000; open http://localhost:3000.
   - Logs: `logs/worker.log`, `logs/api.log`, `logs/web.log` (git-ignored).
-  - These **do not survive a reboot**. **To start: run `.\run.cmd` (or double-click it) in `G:\Monitor`; to stop: `.\stop.cmd`.** They start the database (`pg_ctl`, detached, waiting for "ready to accept connections"), then the API, web and worker, and wait until they answer. Options: `-NoWorker` (no Dune credits), `-NoBrowser`, `-Hidden`. Safe to run twice. See the README, "Starting and stopping (Windows)". Logs of the manual hidden starts used before 2026-10-12 were in `logs/`; `run.cmd` shows each service in its own window instead.
+  - These **do not survive a reboot**. **To start: run `.\run.cmd` (or double-click it) in `G:\Monitor`; to stop: `.\stop.cmd`.** They start the database (`pg_ctl`, detached, waiting for "ready to accept connections"), then the API, web and worker, and wait until they answer. Options: `-NoWorker` (no Dune credits), `-NoBrowser`, `-Hidden`. Safe to run twice. See the README, "Starting and stopping (Windows)". (The scripts now use `backend\.pgdata`, `backend\.env` and `backend\node_modules`.) Logs of the manual hidden starts used before 2026-10-12 were in `logs/`; `run.cmd` shows each service in its own window instead.
   - Gotcha: if a port is already taken, the new process logs `EADDRINUSE` and exits while the old process keeps serving. Check the logs after a restart.
 - Checks (2026-10-03): `npm test` passes (22/22). `npm run typecheck` is clean. The web app (`apps/web`, which the root typecheck does not cover) is also clean with `npx tsc --noEmit`.
-- Local DB (`npm run db:dev`, data in `.pgdata/`), counted 2026-10-03:
+- Local DB (`npm run db:dev`, data in `backend/.pgdata/`), counted 2026-10-03:
   - **Sync model (owner decision 2026-10-03): daily, going forward. No historical swap backfill.**
   - Each completed UTC day is fetched once, as a whole [00:00, 24:00) window, `SYNC_SETTLE_HOURS` (default 2) after it ends. The current day is never fetched.
   - The worker checks hourly; a check with no new day makes no Dune call.
@@ -103,11 +109,11 @@ Note: `queries/dune/exchange_flows.sql` exists but the README lists only the two
   - Peak month: Aug 2026, with 15.2k V2 swaps.
   - Backfilling 2026-01-01 → 2026-09-25 means about **87k rows ≈ 230 credits** (at ~2.6 credits per 1k rows).
 
-### Local Postgres gotcha
+### Local Postgres gotcha (paths updated for the backend/ layout; `run.cmd` / `stop.cmd` do this for you)
 `npm run db:dev` runs Postgres as a child of a node wrapper. If the wrapper is killed (for example by a tool's background time limit), Postgres keeps running in a broken state: connections get `ECONNRESET`, and a restart fails with "postmaster.pid already exists". To fix it:
 ```
-node_modules/@embedded-postgres/windows-x64/native/bin/pg_ctl.exe -D ./.pgdata stop -m fast
-node_modules/@embedded-postgres/windows-x64/native/bin/pg_ctl.exe -D ./.pgdata -o "-p 5433" -l ./.pgdata/server.log -w start
+backend/node_modules/@embedded-postgres/windows-x64/native/bin/pg_ctl.exe -D backend/.pgdata stop -m fast
+backend/node_modules/@embedded-postgres/windows-x64/native/bin/pg_ctl.exe -D backend/.pgdata -o "-p 5433" -l backend/.pgdata/server.log -w start
 ```
 Starting with `pg_ctl` directly, as in the second line, runs the server detached and avoids the problem.
 
@@ -124,6 +130,15 @@ Starting with `pg_ctl` directly, as in the second line, runs the server detached
 
 Format: `YYYY-MM-DD — what changed — files — why/notes`
 
+- 2026-10-12 — **Frontend and backend separated and restructured** (owner: "separate the frontend and the backend part, structure it properly"). A pure move and re-wiring: no behaviour change, no data change, 0 Dune credits.
+  - **New layout:** `frontend/` (the dashboard, was `apps/web`) and `backend/` (`api/`, `worker/`, `packages/`, `config/`, `queries/`, `scripts/`, `archive/`, `.env`, `docker-compose.yml`, was `apps/api`, `apps/worker`, `packages/`, `config/` ...). The full map is in §2, and the README has a "Project layout" section with the command table.
+  - **Two independent npm projects:** `frontend/` and `backend/` each have their own `package.json`, lockfile and `node_modules` (the old single hoisted `node_modules` and the root workspace are gone). The root `package.json` is only a launcher that forwards commands, so `npm run api`, `worker`, `web`, `sync`, `db:*`, `typecheck`, `test` and `audit` still work from the root. New: `npm run install:all`, `npm run web:build`. The frontend already imported no backend code, so nothing in the code had to be decoupled.
+  - **Code changes (small):** `repoRoot()` was renamed `backendRoot()` (`packages/config`, `packages/dune`); `scripts/dev-postgres.mjs` now locates `backend/.pgdata` itself instead of using the current folder; `frontend/next.config.ts` uses its own folder as the Turbopack root; tsconfig `extends` paths in `backend/api` and `backend/worker` point one level up; `scripts/start.ps1` / `stop.ps1` use `backend\.pgdata`, `backend\.env`, `backend\node_modules` and install both parts on a first run. `frontend/` got `@types/node` of its own (it had been borrowing the hoisted one) and a `typecheck` script. `.env` moved to `backend/.env`; each part has its own `.env.example` (the frontend's only setting is `API_BASE_URL`).
+  - **Safety:** before moving anything, the database folder was copied to `G:\Monitor_backup\pgdata-2026-10-12` (outside the project) with `.env` as `env-2026-10-12.txt`, and exact table counts were recorded. `git mv` was used, so file history is kept. The backup folder can be deleted once the owner is happy.
+  - **Verified:** all 25 key dependencies are at exactly the same versions as before (the old lockfile seeded both installs); backend and frontend type-check clean; 27/27 tests; the database is **identical** to the pre-move snapshot (every table count and the exact raw sums; migrations report none pending); `run.cmd` starts from the new layout and `stop.cmd` stops it cleanly; the worker finds its SQL templates and config; the worker CLI boots; all 9 pages return 200; the browser sweep (11 pages × phone/desktop) has 0 overflow and 0 console errors; the on-screen numbers match the API (12/12); the greeting still shows once; the export menu works; `npm run audit` has 0 failures; and a production `next build` of the frontend succeeds on its own.
+  - **Gotcha found and fixed (TypeScript):** the first time Next ran in `frontend/` it silently added `typescript: 7.0.2` (a major version newer than the project's 5.9.3) to `frontend/package.json`. It is now pinned to `^5.9.3`, the same line as the backend, and the frontend type-checks and builds on it. If Next adds anything to `frontend/package.json` by itself again, review `git diff` before committing. Keep both parts on the same TypeScript major.
+  - **Not a regression:** `npm run audit` now lists the MEXC and Toobit balances as informational differences from the live chain, because the data is 4 days behind (it runs through 2026-10-07; the worker has not run since 2026-10-08). They will match again after the worker catches up.
+  - Everything was left **stopped**. When the owner starts it, the worker fetches the missed days (2026-10-08 to 2026-10-11) by itself.
 - 2026-10-12 — **Owner wants to run the project themselves** ("let me run it by myself; tell me how and from which folder"). Added one-click scripts instead of four manual commands. 0 credits.
   - **New files:** `run.cmd` and `stop.cmd` in the project root (thin wrappers that call `scripts/start.ps1` and `scripts/stop.ps1` with `-ExecutionPolicy Bypass`, so Windows script-policy settings cannot block them), documented in the README ("Starting and stopping (Windows)").
   - **`run.cmd`:** checks `.env` and the packages, starts Postgres with `pg_ctl` (waits up to 150 s for crash recovery), then the API, web and worker, each in its own titled window (`DEODScan API`, `DEODScan Web`, `DEODScan Worker`), waits until `/api/health` and the dashboard answer, and opens http://localhost:3000. It skips anything already running (so running it twice is harmless). Options: `-NoWorker`, `-NoBrowser`, `-Hidden`.
