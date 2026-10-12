@@ -51,6 +51,23 @@ All addresses live in [`config/deod.yaml`](config/deod.yaml). Each entry records
 - **No duplicates.** Each blockchain event is stored once, keyed by `(chain, tx_hash, evt_index)`; re-fetched rows are skipped. Every table rejects data from any chain other than `bnb`.
 - **Labels.** Only configured exchange addresses and pools get labels. No behavioural labels (such as "whale" or "bot") are ever assigned.
 
+## Starting and stopping (Windows)
+
+Run everything from the project folder `G:\Monitor` (the folder that contains `package.json`).
+
+| What | How |
+|---|---|
+| **Start everything** | Double-click `run.cmd`, or open a terminal in `G:\Monitor` and type `.\run.cmd` (PowerShell) or `run.cmd` (Command Prompt). |
+| **Stop everything** | Double-click `stop.cmd`, or type `.\stop.cmd`. Closing the three "DEODScan" windows also stops the services. |
+
+`run.cmd` starts the database, then the API, the dashboard and the daily-sync worker (each in its own window so you can see its log), waits until they answer, and opens http://localhost:3000. It is safe to run twice; anything already running is left alone.
+
+Options: `.\run.cmd -NoWorker` (do not start the worker, so no Dune credits are used), `.\run.cmd -NoBrowser`, `.\run.cmd -Hidden` (no visible windows).
+
+After the PC has been off, the worker fetches any finished days it missed by itself, usually for well under 1 Dune credit per day. Nothing is synced while the PC is off, and nothing restarts on its own after a reboot.
+
+The scripts behind them are `scripts/start.ps1` and `scripts/stop.ps1`.
+
 ## Running locally
 
 ```bash

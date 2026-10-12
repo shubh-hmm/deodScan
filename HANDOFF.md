@@ -7,7 +7,7 @@
 > code, config, queries, data, or decisions. Do not wait until the end of the session. Short entries
 > are fine; skipping them is not.
 
-Last updated: 2026-10-08
+Last updated: 2026-10-12
 
 ---
 
@@ -80,9 +80,7 @@ Note: `queries/dune/exchange_flows.sql` exists but the README lists only the two
   - Worker, which checks hourly.
   - API on :4000 and web on :3000; open http://localhost:3000.
   - Logs: `logs/worker.log`, `logs/api.log`, `logs/web.log` (git-ignored).
-  - These **do not survive a reboot**. To start again: run the `pg_ctl ... start` line from the gotcha below, then for each of `worker`, `api`, `web`, in PowerShell:
-    `Start-Process cmd.exe -ArgumentList "/c npm run <name> > logs\<name>.log 2>&1" -WorkingDirectory G:\Monitor -WindowStyle Hidden`
-  - To stop: find the PID with `Get-NetTCPConnection -LocalPort 4000` (or 3000) and run `Stop-Process`. For the worker, stop the `node` process whose command line includes `apps/worker/src/index.ts`.
+  - These **do not survive a reboot**. **To start: run `.\run.cmd` (or double-click it) in `G:\Monitor`; to stop: `.\stop.cmd`.** They start the database (`pg_ctl`, detached, waiting for "ready to accept connections"), then the API, web and worker, and wait until they answer. Options: `-NoWorker` (no Dune credits), `-NoBrowser`, `-Hidden`. Safe to run twice. See the README, "Starting and stopping (Windows)". Logs of the manual hidden starts used before 2026-10-12 were in `logs/`; `run.cmd` shows each service in its own window instead.
   - Gotcha: if a port is already taken, the new process logs `EADDRINUSE` and exits while the old process keeps serving. Check the logs after a restart.
 - Checks (2026-10-03): `npm test` passes (22/22). `npm run typecheck` is clean. The web app (`apps/web`, which the root typecheck does not cover) is also clean with `npx tsc --noEmit`.
 - Local DB (`npm run db:dev`, data in `.pgdata/`), counted 2026-10-03:
@@ -126,6 +124,13 @@ Starting with `pg_ctl` directly, as in the second line, runs the server detached
 
 Format: `YYYY-MM-DD — what changed — files — why/notes`
 
+- 2026-10-12 — **Owner wants to run the project themselves** ("let me run it by myself; tell me how and from which folder"). Added one-click scripts instead of four manual commands. 0 credits.
+  - **New files:** `run.cmd` and `stop.cmd` in the project root (thin wrappers that call `scripts/start.ps1` and `scripts/stop.ps1` with `-ExecutionPolicy Bypass`, so Windows script-policy settings cannot block them), documented in the README ("Starting and stopping (Windows)").
+  - **`run.cmd`:** checks `.env` and the packages, starts Postgres with `pg_ctl` (waits up to 150 s for crash recovery), then the API, web and worker, each in its own titled window (`DEODScan API`, `DEODScan Web`, `DEODScan Worker`), waits until `/api/health` and the dashboard answer, and opens http://localhost:3000. It skips anything already running (so running it twice is harmless). Options: `-NoWorker`, `-NoBrowser`, `-Hidden`.
+  - **`stop.cmd`:** kills the three windows and their process trees, anything left on ports 3000 and 4000, the worker (found by its command line), and stops Postgres cleanly with `pg_ctl stop -m fast` so the next start is quick.
+  - **Name:** the first name `start.cmd` was renamed `run.cmd` because `start` is a built-in Windows command, and because PowerShell needs `.\` in front of a file in the current folder.
+  - **Tested** (`-NoWorker -NoBrowser -Hidden`, so no popups and no credits): everything starts from cold, all pages return 200, a second run leaves everything alone, `stop.cmd` leaves no listeners on 3000/4000/5433 and no leftover processes. Both `.cmd` wrappers were tested end to end. Everything was left **stopped** so the owner can run it themselves.
+  - **When the owner starts it:** data runs through 2026-10-08 00:00 UTC, so the worker will fetch the missed finished days (2026-10-08 to 2026-10-11, 4 days) by itself: usually about 0.5 credits per day, with occasional spikes of about 8 (see the 2026-10-08 entry).
 - 2026-10-08 — Owner said "run it" (several times). The PC had been restarted again, so Postgres, the API, the web app and the worker were all down, and 2026-10-06 and 2026-10-07 were unsynced.
   - **Restart:** same steps as before (§5): Postgres via `pg_ctl` run detached, waiting for "ready to accept connections" (it does crash recovery for about 35 s), then the API, web and worker as detached processes. The data was intact (4,685 transfers, 6,401 swaps, 2 exchanges). No port conflicts.
   - **Catch-up (automatic):** the worker fetched both missed days, 0 rejected, 0 errors. Transfers: 2026-10-06 +14, 2026-10-07 +11. Swaps: 2026-10-06 +190, 2026-10-07 +238. Data now runs through **2026-10-08 00:00 UTC**. Total cost **8.72 credits** (see below).
