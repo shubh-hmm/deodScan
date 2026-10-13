@@ -194,6 +194,10 @@ Data is synced once per **completed UTC day**. The current, incomplete day is ne
 
 Avoid joining `tokens.transfers` to label tables: one exploratory query that did this cost 293 credits.
 
+## Time period is remembered
+
+The period you pick (1H, 6H, 24H, 7D, 30D, All or a custom date range) stays selected on every page, in new tabs and after a reload. It is kept in a browser cookie named `deod_range` (one year). A period in the address always wins and becomes the new remembered one. To forget it, delete that cookie.
+
 ## Data audit
 
 `npm run audit` cross-checks what the dashboard shows against independent sources. It is read-only and spends no Dune credits (`--no-chain` skips the blockchain sampling).

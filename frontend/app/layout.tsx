@@ -8,6 +8,7 @@ import { Wordmark } from '@/components/brand';
 import { BrandMark, Icons } from '@/components/icons';
 import { MobileNav, SideNav } from '@/components/nav-links';
 import { PriceTicker, type PriceData } from '@/components/price-ticker';
+import { RangeMemory } from '@/components/range-memory';
 import { Splash } from '@/components/splash';
 
 export const metadata: Metadata = {
@@ -31,6 +32,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="en">
       <body className="min-h-screen">
         <Splash />
+        <RangeMemory />
         <div className="flex min-h-screen">
           <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col border-r border-line bg-sidebar/95 backdrop-blur md:flex">
             <Link href="/" className="flex items-center gap-3 border-b border-line px-4 py-4">

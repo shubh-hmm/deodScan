@@ -7,7 +7,7 @@
 > code, config, queries, data, or decisions. Do not wait until the end of the session. Short entries
 > are fine; skipping them is not.
 
-Last updated: 2026-10-12
+Last updated: 2026-10-13
 
 ---
 
@@ -130,6 +130,11 @@ Starting with `pg_ctl` directly, as in the second line, runs the server detached
 
 Format: `YYYY-MM-DD — what changed — files — why/notes`
 
+- 2026-10-13 — **The chosen time period now follows the user to every page.** Owner: "if i choose 30 day or 1h or 24H in one section, then in other i dont have to click on that period". 0 Dune credits.
+  - **How:** cookie `deod_range` (1 year, path `/`, SameSite=Lax, no secret; value like `range=30d` or `range=custom&from=..&to=..`). Written in the browser by `frontend/components/range-memory.tsx` (`<RangeMemory />` in `app/layout.tsx`, `useSearchParams` inside Suspense) whenever the address holds a valid period. Read on the server in `flat()` (`frontend/lib/api.ts`): when the address has no `range`, the cookie fills in `range`/`from`/`to`, so every page (dashboard, MEXC, Toobit, PancakeSwap, flows, swaps, wallets, CSV export links) uses it. Pure helpers (`pickRange`, `encodeRange`, `decodeRange`) in `frontend/lib/saved-range.ts`; junk cookies are ignored.
+  - **Rules:** a period in the address always wins and becomes the new remembered one. Nothing remembered yet = each page keeps its own default (24H; Top wallets = All). After a pick, Top wallets also follows it.
+  - **Verified:** real-browser test (Edge via puppeteer-core) 32/32 on the dev server and again 32/32 on a production build (`next build` + `next start -p 3100`, stopped afterwards): menu navigation, in-page links, new tab, reload, custom range, address-beats-cookie, CSV links carry the period, junk cookies, separate browser unaffected. Frontend typecheck clean.
+  - **Gotcha:** `cookies()` is async in Next 16, so `flat()` is async-aware; reading it makes pages dynamic (they already were).
 - 2026-10-12 — **"Historical flow chart is blank" on the MEXC page: cause found and fixed.** Owner's screenshot showed the cards and tables but an empty chart. The data and the chart code were fine (the same page showed 37 bars at `localhost`). **Cause:** the page was opened through the computer's network address (`http://192.168.1.34:3000`), and the Next.js **dev** server blocks its dev resources (the HMR websocket) for every address except `localhost`. Blocked, the client-side parts of the page never start, so the charts (client components) stay empty while the server-drawn cards and tables still show. The dev server logs "Blocked cross-origin request to Next.js dev resource /_next/hmr from 192.168.1.34". Reproduced in a real browser: `localhost` = chart OK, `192.168.1.34` and `192.168.56.1` = chart blank.
   - **Fix** (`frontend/next.config.ts`): `allowedDevOrigins` is set to this computer's own IPv4 addresses (read at start from `os.networkInterfaces()`, so it follows the network). Dev server only; no effect on a production build; only this computer's own addresses, not the whole network. The running dashboard picked the change up without a restart.
   - **Verified:** the chart draws through `localhost`, `192.168.1.34` and `192.168.56.1` (37 bars each); on the dashboard (7 charts), MEXC, Toobit and PancakeSwap every chart draws through both `localhost` and the network address (8/8); frontend typecheck clean. Production build not re-run (the change cannot affect it).

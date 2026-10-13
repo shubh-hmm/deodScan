@@ -1,4 +1,6 @@
 import 'server-only';
+import { cookies } from 'next/headers';
+import { RANGE_COOKIE, decodeRange } from '@/lib/saved-range';
 
 const BASE = process.env.API_BASE_URL ?? 'http://localhost:4000';
 
@@ -23,10 +25,19 @@ export async function api<T = any>(path: string, params?: Record<string, string 
 
 export type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
-/** Flattens Next's searchParams to single strings (first value wins). */
+/**
+ * Flattens Next's searchParams to single strings (first value wins).
+ * A page whose address has no time period of its own starts on the period the user last picked (remembered in a cookie), so a
+ * choice made on one page holds on every other page. A period in the address always wins.
+ */
 export async function flat(sp: SearchParams): Promise<Record<string, string | undefined>> {
   const o = await sp;
-  return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Array.isArray(v) ? v[0] : v]));
+  const out: Record<string, string | undefined> = Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Array.isArray(v) ? v[0] : v]));
+  if (!out.range) {
+    const saved = decodeRange((await cookies()).get(RANGE_COOKIE)?.value);
+    if (saved) { out.range = saved.range; if (saved.from) out.from = saved.from; if (saved.to) out.to = saved.to; }
+  }
+  return out;
 }
 
 export interface Meta {
