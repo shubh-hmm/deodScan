@@ -130,6 +130,7 @@ Starting with `pg_ctl` directly, as in the second line, runs the server detached
 
 Format: `YYYY-MM-DD — what changed — files — why/notes`
 
+- 2026-10-21 — **Added Poloniex and WEEX too (same way as XT/BingX; config + UI only, no history yet).** 0 Dune credits. Poloniex `0x4068626796a4ffb573452d5297db134371a33a1c` (plain wallet, nonce 42,659, ~1.30M DEOD); WEEX `0x0908a40eb8dc56b76065a549824b5fa777ef1ed7` (plain wallet, nonce 541,526, ~2.21M DEOD). Share-chart ramps in `frontend/lib/colors.ts` extended to 6 steps for 6 exchanges. Same pending steps as XT/BingX: restart the backend, then ask the owner before the Dune history load (now 4 new addresses in one backfill).
 - 2026-10-21 — **Added XT and BingX as monitored exchanges (config + UI only; NO history loaded yet).** Owner supplied BscScan links. 0 Dune credits.
   - XT `0xdb3ded7731c781224ec292e2163d9554c094fd7c`, BingX `0x6260384eec5b6efcb87874bbcfd40914da9dbfd5`. Checked with the free BSC RPC on 2026-10-21: both are plain wallets (no contract code); XT nonce 1,020,395 and ~1.11M DEOD; BingX nonce 608 and ~12.02M DEOD. Dune labels not checked (credits). Recorded as `hot_wallet`, `source: user_supplied`, `verified: false`, like MEXC.
   - Files: `backend/config/deod.yaml` (two exchange blocks), `frontend/lib/format.ts` (names), `frontend/components/nav-links.tsx` (menu), `frontend/lib/colors.ts` (share ramps now 4 steps, so 4 exchanges don't repeat a colour), page texts in `layout.tsx`, `not-found.tsx`, `page.tsx`, `[venue]/page.tsx`. Typecheck clean, 49 tests pass.

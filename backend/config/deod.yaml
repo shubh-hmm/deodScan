@@ -62,6 +62,20 @@ exchanges:
         address_type: hot_wallet   # EOA (no contract code), nonce 608, held ~12.02M DEOD on 2026-10-21 (same on-chain checks)
         source: user_supplied      # owner supplied the BscScan link 2026-10-21; Dune label not checked (would cost credits)
         verified: false
+  poloniex:
+    name: Poloniex
+    addresses:
+      - address: "0x4068626796a4ffb573452d5297db134371a33a1c"
+        address_type: hot_wallet   # EOA (no contract code), nonce 42,659, held ~1.30M DEOD on 2026-10-21 (eth_getCode / eth_getTransactionCount / balanceOf)
+        source: user_supplied      # owner supplied 2026-10-21; Dune label not checked (would cost credits)
+        verified: false
+  weex:
+    name: WEEX
+    addresses:
+      - address: "0x0908a40eb8dc56b76065a549824b5fa777ef1ed7"
+        address_type: hot_wallet   # EOA (no contract code), nonce 541,526, held ~2.21M DEOD on 2026-10-21 (same on-chain checks)
+        source: user_supplied      # owner supplied 2026-10-21; Dune label not checked (would cost credits)
+        verified: false
 
 # NOTE: the supplied V2/V3 labels were swapped. Corrected here based on factory() and factory lookups.
 pancakeswap:

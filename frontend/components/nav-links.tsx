@@ -7,7 +7,7 @@ import { Icons } from '@/components/icons';
 
 export const NAV: [string, [string, string, ReactNode][]][] = [
   ['Overview', [['/', 'Dashboard', Icons.dashboard]]],
-  ['Exchanges', [['/MEXC', 'MEXC', Icons.exchange], ['/Toobit', 'Toobit', Icons.exchange], ['/XT', 'XT', Icons.exchange], ['/BingX', 'BingX', Icons.exchange]]],
+  ['Exchanges', [['/MEXC', 'MEXC', Icons.exchange], ['/Toobit', 'Toobit', Icons.exchange], ['/XT', 'XT', Icons.exchange], ['/BingX', 'BingX', Icons.exchange], ['/Poloniex', 'Poloniex', Icons.exchange], ['/WEEX', 'WEEX', Icons.exchange]]],
   ['DEX', [['/PancakeSwap', 'PancakeSwap', Icons.layers]]],
   ['Explore', [['/flows', 'Exchange flows', Icons.activity], ['/swaps', 'Swaps', Icons.swap], ['/wallets', 'Top wallets', Icons.wallets]]],
   ['System', [['/status', 'Sync status', Icons.status]]],
