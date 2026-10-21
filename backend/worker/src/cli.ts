@@ -44,7 +44,10 @@ try {
     process.exitCode = 2;
   }
 } catch (err) {
-  log.error({ err: (err as Error).message }, 'sync command failed');
+  const e = err as Error & { code?: string; errors?: Error[] };
+  // A refused database connection arrives as an AggregateError with an empty message; say what it means.
+  const refused = e.code === 'ECONNREFUSED' || e.errors?.some((x) => (x as { code?: string }).code === 'ECONNREFUSED');
+  log.error({ err: e.message || e.code || String(err) }, refused ? 'sync command failed: the database is not running. Start it first with npm run dev in another terminal' : 'sync command failed');
   process.exitCode = 1;
 } finally {
   await closePool();
