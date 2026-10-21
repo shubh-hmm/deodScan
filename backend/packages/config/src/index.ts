@@ -83,6 +83,8 @@ const EnvSchema = z.object({
   DUNE_API_KEY: z.string().optional(),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   ADMIN_TOKEN: z.string().optional(),
+  // The dashboard's "Update today" button. Set to false on a public server (anyone could press it and spend Dune credits).
+  REFRESH_TODAY_ENABLED: z.enum(['true', 'false']).default('true'),
   API_PORT: z.coerce.number().int().default(4000),
   LOG_LEVEL: z.string().default('info'),
 });

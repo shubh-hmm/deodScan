@@ -198,6 +198,15 @@ Avoid joining `tokens.transfers` to label tables: one exploratory query that did
 
 The period you pick (1H, 6H, 24H, 7D, 30D, All or a custom date range) stays selected on every page, in new tabs and after a reload. It is kept in a browser cookie named `deod_range` (one year). A period in the address always wins and becomes the new remembered one. To forget it, delete that cookie.
 
+## "Update today" button
+
+The worker syncs only **finished** UTC days, so today's transfers appear after the day ends (about 02:00 UTC the next day). The **Update today** button in the dashboard header fetches today's unfinished day so far, on demand:
+
+- It asks first, because each fetch uses Dune credits (about 1). The server allows it once every 10 minutes (`REFRESH_TODAY_COOLDOWN_MINUTES`).
+- The rows are stored with the normal duplicate protection. The next daily sync fetches the whole day again and adds nothing twice; the daily checkpoint is not moved.
+- It needs the backend running (`npm run dev`), but not the worker. The same thing from a terminal: `npx tsx worker/src/cli.ts today`.
+- On a public server set `REFRESH_TODAY_ENABLED=false` in `backend/.env`: anyone who can open the page could otherwise press it and spend credits. The button then disappears.
+
 ## Data audit
 
 `npm run audit` cross-checks what the dashboard shows against independent sources. It is read-only and spends no Dune credits (`--no-chain` skips the blockchain sampling).

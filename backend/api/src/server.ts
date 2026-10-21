@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { loadConfig, loadEnv } from '@deod/config';
 import { closePool, getPool, migrate, refreshWalletSummary, deriveExchangeFlows, seedFromConfig } from '@deod/db';
 import * as A from '@deod/analytics';
-import { syncAllCompletedDays, SyncBusyError } from '@deod/worker';
+import { syncAllCompletedDays, syncToday, todayCooldownSeconds, SyncBusyError, SyncCooldownError } from '@deod/worker';
 import { toCsv } from './csv.js';
 import { getPrice } from './price.js';
 
@@ -182,6 +182,30 @@ app.get('/api/search', async (req) => {
 });
 
 app.get('/api/sync/status', async () => A.syncStatus(db));
+
+// "Update today": fetches the unfinished current UTC day on demand (Dune credits). The fetch runs in the background; the page polls GET.
+interface RefreshJob { state: 'idle' | 'running' | 'done' | 'error'; startedAt?: string; finishedAt?: string; result?: { inserted: number; credits: number; to: string }; error?: string }
+let refreshJob: RefreshJob = { state: 'idle' };
+const refreshEnabled = env.REFRESH_TODAY_ENABLED === 'true';
+
+app.get('/api/sync/today', async () => ({ enabled: refreshEnabled, cooldownSeconds: await todayCooldownSeconds(), job: refreshJob }));
+
+app.post('/api/sync/today', async (_req, reply) => {
+  if (!refreshEnabled) return reply.code(403).send({ error: 'Update today is switched off on this server' });
+  if (refreshJob.state === 'running') return reply.code(409).send({ error: 'already running', job: refreshJob });
+  const wait = await todayCooldownSeconds();
+  if (wait > 0) return reply.code(429).send({ error: `Used a moment ago; try again in ${Math.ceil(wait / 60)} min`, cooldownSeconds: wait });
+  refreshJob = { state: 'running', startedAt: new Date().toISOString() };
+  void syncToday().then(
+    (r) => { refreshJob = { ...refreshJob, state: 'done', finishedAt: new Date().toISOString(), result: r }; },
+    (e) => {
+      const msg = e instanceof SyncBusyError || e instanceof SyncCooldownError ? e.message : 'the fetch failed; see the backend log';
+      if (!(e instanceof SyncBusyError || e instanceof SyncCooldownError)) app.log.error({ err: e instanceof Error ? e.message : String(e) }, 'update today failed');
+      refreshJob = { ...refreshJob, state: 'error', finishedAt: new Date().toISOString(), error: msg };
+    },
+  );
+  return reply.code(202).send({ started: true });
+});
 
 // ---------------------------------------------------------------------------
 // Admin routes (bearer token)

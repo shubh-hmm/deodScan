@@ -22,7 +22,8 @@ const DAY = 24 * HOUR;
  */
 const SETTLE_MS = Number(process.env.SYNC_SETTLE_HOURS ?? 2) * HOUR;
 
-export type SyncMode = 'backfill' | 'daily';
+/** 'today' = the owner pressed "Update today": the unfinished current day, fetched on demand. It never moves the synced_until checkpoint. */
+export type SyncMode = 'backfill' | 'daily' | 'today';
 
 let dune: DuneClient | undefined;
 function client() {
@@ -116,10 +117,10 @@ async function runWindow(name: QueryName, mode: SyncMode, start: Date, end: Date
     await db.query(
       `UPDATE dune_sync_state SET status = 'ok', error = NULL, last_successful_execution = $2,
          last_block_time = GREATEST(last_block_time, $3::timestamptz),
-         synced_until = GREATEST(synced_until, $4::timestamptz), last_sync_at = now(),
+         synced_until = CASE WHEN $6 THEN GREATEST(synced_until, $4::timestamptz) ELSE synced_until END, last_sync_at = now(),
          credits_total = credits_total + coalesce($5::numeric, 0), updated_at = now()
        WHERE query_name = $1`,
-      [name, result.executionId, newest, end, result.creditsUsed],
+      [name, result.executionId, newest, end, result.creditsUsed, mode !== 'today'],
     );
     wlog.info({ fetched: result.rows.length, inserted, duplicate, rejected: rejected.length, credits: result.creditsUsed }, 'dune window done');
     return { fetched: result.rows.length, inserted, duplicate, rejected: rejected.length, credits: result.creditsUsed, newest };
@@ -200,6 +201,42 @@ export async function syncAllCompletedDays() {
     for (const q of QUERIES) { if (stopRequested) break; windows += (await syncCompletedDays(q)).length; }
     if (windows) await postProcess();
     return windows;
+  });
+}
+
+/** Minimum time between two "Update today" fetches, so the button cannot burn Dune credits by being clicked repeatedly. */
+export const TODAY_COOLDOWN_SECONDS = Number(process.env.REFRESH_TODAY_COOLDOWN_MINUTES ?? 10) * 60;
+
+/** Seconds until "Update today" may run again (0 = now). Based on the last 'today' run recorded in the database. */
+export async function todayCooldownSeconds(now = new Date()): Promise<number> {
+  const { rows } = await getPool().query<{ t: Date | null }>(`SELECT max(started_at) AS t FROM sync_runs WHERE mode = 'today'`);
+  const last = rows[0]?.t;
+  return last ? Math.max(0, Math.ceil(TODAY_COOLDOWN_SECONDS - (now.getTime() - last.getTime()) / 1000)) : 0;
+}
+
+export class SyncCooldownError extends Error {
+  constructor(readonly retryAfterSeconds: number) { super(`"Update today" was used a moment ago; try again in ${Math.ceil(retryAfterSeconds / 60)} min`); }
+}
+
+/**
+ * "Today so far": fetches 00:00 UTC today -> now for every query, on demand (a button or `sync today`). The rows are stored
+ * with the normal duplicate protection, so tomorrow's daily sync re-fetching the same day adds nothing twice. synced_until is
+ * not moved. Costs Dune credits each time, hence the cooldown.
+ */
+export async function syncToday(now = new Date()) {
+  return withSyncLock(async () => {
+    const wait = await todayCooldownSeconds(now);
+    if (wait > 0) throw new SyncCooldownError(wait);
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const end = new Date(Math.floor(now.getTime() / 1000) * 1000);
+    if (end.getTime() - start.getTime() < 60_000) throw new Error('too early: the UTC day has just started, try again in a minute');
+    const totals = { inserted: 0, credits: 0, from: start.toISOString(), to: end.toISOString() };
+    for (const q of QUERIES) {
+      const r = await runWindow(q, 'today', start, end);
+      totals.inserted += r.inserted; totals.credits += r.credits ?? 0;
+    }
+    await postProcess();
+    return totals;
   });
 }
 
