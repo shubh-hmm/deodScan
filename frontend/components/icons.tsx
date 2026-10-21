@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 
 /** 16px stroke icons (decorative: always aria-hidden; the label next to them carries the meaning). */
 function Svg({ children, size = 16 }: { children: ReactNode; size?: number }) {
@@ -35,15 +35,18 @@ export const Icons = {
 
 /** Brand mark: opposing in/out arrows on a gradient tile. */
 export function BrandMark({ size = 30 }: { size?: number }) {
+  // Every copy of the logo needs its own gradient id: a copy inside a display:none block (the desktop-only panel on a phone) cannot
+  // supply a gradient that other copies point to.
+  const gid = `brand-g-${useId().replace(/:/g, '')}`;
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" className="shrink-0">
       <defs>
-        <linearGradient id="brand-g" x1="0" y1="0" x2="1" y2="1">
+        <linearGradient id={gid} x1="0" y1="0" x2="1" y2="1">
           <stop offset="0" stopColor="#8b6cff" />
           <stop offset="1" stopColor="#e155d6" />
         </linearGradient>
       </defs>
-      <rect width="32" height="32" rx="9" fill="url(#brand-g)" />
+      <rect width="32" height="32" rx="9" fill={`url(#${gid})`} />
       <path d="M10 12h12m0 0-3.5-3.5M22 12l-3.5 3.5" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
       <path d="M22 20H10m0 0 3.5 3.5M10 20l3.5-3.5" stroke="#fff" strokeOpacity=".7" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
     </svg>
