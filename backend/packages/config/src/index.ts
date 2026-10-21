@@ -83,6 +83,9 @@ const EnvSchema = z.object({
   DUNE_API_KEY: z.string().optional(),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   ADMIN_TOKEN: z.string().optional(),
+  // When set, /api/* (except /api/health and the bearer-protected /api/admin/*) answers only requests with this value in the x-internal-key
+  // header. The dashboard server sends it, so the API stays unusable even if its address becomes public. Set the same value in frontend/.env.local.
+  INTERNAL_API_KEY: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(16).optional()),
   // The dashboard's "Update today" button. Set to false on a public server (anyone could press it and spend Dune credits).
   REFRESH_TODAY_ENABLED: z.enum(['true', 'false']).default('true'),
   API_PORT: z.coerce.number().int().default(4000),

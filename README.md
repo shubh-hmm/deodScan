@@ -198,6 +198,20 @@ Avoid joining `tokens.transfers` to label tables: one exploratory query that did
 
 The period you pick (1H, 6H, 24H, 7D, 30D, All or a custom date range) stays selected on every page, in new tabs and after a reload. It is kept in a browser cookie named `deod_range` (one year). A period in the address always wins and becomes the new remembered one. To forget it, delete that cookie.
 
+## Sign-in (admin only)
+
+The whole dashboard sits behind a sign-in page for one admin (Bimal Pradhan). Without a valid session every page redirects to `/login`, and the page scripts' routes (`/api-price`, `/api-refresh`, CSV exports) answer 401.
+
+1. Open `frontend/.env.local` (created for you, not in git) and put your password after `ADMIN_PASSWORD=`. Use a long passphrase. `AUTH_SECRET` (signs the session cookie) is already filled in; keep it secret.
+2. Restart the dashboard (Ctrl+C, then `npm run dev` in `frontend`), open it and sign in. You stay signed in for 30 days; **Sign out** is in the header.
+3. Five wrong passwords from one address (or twenty from anywhere) lock sign-in for 15 minutes.
+
+Before putting it on the internet:
+- Serve it over HTTPS (Vercel does). The session cookie is marked Secure when the request arrives over HTTPS.
+- Keep the backend API **private** (do not expose port 4000). As a second lock set the same long random `INTERNAL_API_KEY` in `backend/.env` and `frontend/.env.local`: the API then refuses any request without it.
+- Set `REFRESH_TODAY_ENABLED=false` in `backend/.env` only if you do not want the Update today button at all (it already needs a signed-in session).
+- Run the dashboard on one server instance: the lockout counter is kept in memory, so on serverless hosting it is per instance and weaker; the password length is the real protection.
+
 ## "Update today" button
 
 The worker syncs only **finished** UTC days, so today's transfers appear after the day ends (about 02:00 UTC the next day). The **Update today** button in the dashboard header fetches today's unfinished day so far, on demand:

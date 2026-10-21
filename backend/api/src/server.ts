@@ -21,6 +21,14 @@ const app = Fastify({
 
 await app.register(rateLimit, { max: 300, timeWindow: '1 minute' });
 
+app.addHook('onRequest', async (req, reply) => {
+  const key = env.INTERNAL_API_KEY;
+  const path = req.url.split('?')[0]!;
+  if (!key || !path.startsWith('/api/') || path === '/api/health' || path.startsWith('/api/admin/')) return;
+  const got = String(req.headers['x-internal-key'] ?? '');
+  if (got.length !== key.length || !timingSafeEqual(Buffer.from(got), Buffer.from(key))) return reply.code(401).send({ error: 'unauthorized' });
+});
+
 class BadRequest extends Error {}
 
 function parse<T extends z.ZodTypeAny>(schema: T, input: unknown): z.infer<T> {

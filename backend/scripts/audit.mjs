@@ -47,7 +47,7 @@ const eqDec = (a, b) => scaled(a) === scaled(b);
 const near = (a, b, rel = 1e-9) => Math.abs(Number(a) - Number(b)) <= rel * Math.max(1, Math.abs(Number(a)), Math.abs(Number(b)));
 const fmt = (x) => Number(x).toLocaleString('en-US', { maximumFractionDigits: 2 });
 
-async function api(path) { const r = await fetch(API + path); if (!r.ok) throw new Error(`${path} -> HTTP ${r.status}`); return path.includes('format=csv') ? r.text() : r.json(); }
+async function api(path) { const r = await fetch(API + path, { headers: process.env.INTERNAL_API_KEY ? { 'x-internal-key': process.env.INTERNAL_API_KEY } : {} }); if (!r.ok) throw new Error(`${path} -> HTTP ${r.status}`); return path.includes('format=csv') ? r.text() : r.json(); }
 
 const ENDPOINTS = ['https://bsc-dataseed.bnbchain.org', 'https://bsc-dataseed1.defibit.io', 'https://bsc-dataseed1.ninicoin.io'];
 async function rpc(method, params, tries = 6) {

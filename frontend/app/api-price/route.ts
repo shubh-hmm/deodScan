@@ -1,9 +1,9 @@
 // Price proxy: the browser polls the web origin; the API (and CoinGecko behind it) stay server-side.
-const BASE = process.env.API_BASE_URL ?? 'http://localhost:4000';
+import { API_BASE, apiHeaders } from '@/lib/api-base';
 
 export async function GET() {
   try {
-    const res = await fetch(`${BASE}/api/price`, { cache: 'no-store' });
+    const res = await fetch(`${API_BASE}/api/price`, { cache: 'no-store', headers: apiHeaders() });
     return new Response(res.body, {
       status: res.status,
       headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },

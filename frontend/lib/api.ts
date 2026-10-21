@@ -2,7 +2,7 @@ import 'server-only';
 import { cookies } from 'next/headers';
 import { RANGE_COOKIE, decodeRange } from '@/lib/saved-range';
 
-const BASE = process.env.API_BASE_URL ?? 'http://localhost:4000';
+import { API_BASE as BASE, apiHeaders } from '@/lib/api-base';
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) {
@@ -15,7 +15,7 @@ export async function api<T = any>(path: string, params?: Record<string, string 
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(params ?? {})) if (v !== undefined && v !== '') qs.set(k, v);
   const url = `${BASE}${path}${qs.size ? `?${qs}` : ''}`;
-  const res = await fetch(url, { cache: 'no-store' });
+  const res = await fetch(url, { cache: 'no-store', headers: apiHeaders() });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new ApiError(body.error ?? `API ${res.status}`, res.status);

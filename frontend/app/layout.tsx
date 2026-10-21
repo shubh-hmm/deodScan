@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import '@fontsource-variable/unbounded';
 import Link from 'next/link';
+import { headers } from 'next/headers';
 import './globals.css';
 import { api, meta, type Meta } from '@/lib/api';
 import { fmtTime } from '@/lib/format';
@@ -11,6 +12,8 @@ import { PriceTicker, type PriceData } from '@/components/price-ticker';
 import { RefreshToday } from '@/components/refresh-today';
 import { RangeMemory } from '@/components/range-memory';
 import { Splash } from '@/components/splash';
+import { AUTHED_HEADER } from '@/lib/auth';
+import { logout } from '@/app/login/actions';
 
 export const metadata: Metadata = {
   title: 'DEODScan',
@@ -27,6 +30,10 @@ async function safe<T>(fn: () => Promise<T>): Promise<T | null> {
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Signed out: only the sign-in page is ever rendered, bare, without the menu, the price or any call to the backend.
+  if ((await headers()).get(AUTHED_HEADER) !== '1') {
+    return <html lang="en"><body className="min-h-screen">{children}</body></html>;
+  }
   const [price, m] = await Promise.all([safe(() => api<PriceData>('/api/price')), safe<Meta>(meta)]);
 
   return (
@@ -70,6 +77,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <form action="/search" className="relative ml-auto w-full max-w-md sm:w-80">
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted">{Icons.search}</span>
                 <input name="q" placeholder="Search wallet or transaction hash" className="w-full !rounded-xl !border-line-strong !bg-surface/90 !py-2 !pl-9" aria-label="Search" />
+              </form>
+              <form action={logout}>
+                <button type="submit" className="chip cursor-pointer hover:border-line-strong" title="Sign out of DEODScan">Sign out</button>
               </form>
             </header>
             <MobileNav />
