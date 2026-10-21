@@ -7,7 +7,7 @@
 > code, config, queries, data, or decisions. Do not wait until the end of the session. Short entries
 > are fine; skipping them is not.
 
-Last updated: 2026-10-13
+Last updated: 2026-10-21
 
 ---
 
@@ -130,6 +130,10 @@ Starting with `pg_ctl` directly, as in the second line, runs the server detached
 
 Format: `YYYY-MM-DD — what changed — files — why/notes`
 
+- 2026-10-21 — **Added XT and BingX as monitored exchanges (config + UI only; NO history loaded yet).** Owner supplied BscScan links. 0 Dune credits.
+  - XT `0xdb3ded7731c781224ec292e2163d9554c094fd7c`, BingX `0x6260384eec5b6efcb87874bbcfd40914da9dbfd5`. Checked with the free BSC RPC on 2026-10-21: both are plain wallets (no contract code); XT nonce 1,020,395 and ~1.11M DEOD; BingX nonce 608 and ~12.02M DEOD. Dune labels not checked (credits). Recorded as `hot_wallet`, `source: user_supplied`, `verified: false`, like MEXC.
+  - Files: `backend/config/deod.yaml` (two exchange blocks), `frontend/lib/format.ts` (names), `frontend/components/nav-links.tsx` (menu), `frontend/lib/colors.ts` (share ramps now 4 steps, so 4 exchanges don't repeat a colour), page texts in `layout.tsx`, `not-found.tsx`, `page.tsx`, `[venue]/page.tsx`. Typecheck clean, 49 tests pass.
+  - **Pending:** the API/worker re-seed addresses on start, so the API needs a restart; then the history (2026-01-01 -> 2026-10-07) must be loaded from Dune with `npm run sync -- backfill --query exchange_transfers --from 2026-01-01 --window-days 92` (BitMart's cost about 22 credits; XT is busier). Owner must approve the credits first. Until then XT/BingX pages are empty, and the daily sync only adds days from its checkpoint on.
 - 2026-10-13 — **The chosen time period now follows the user to every page.** Owner: "if i choose 30 day or 1h or 24H in one section, then in other i dont have to click on that period". 0 Dune credits.
   - **How:** cookie `deod_range` (1 year, path `/`, SameSite=Lax, no secret; value like `range=30d` or `range=custom&from=..&to=..`). Written in the browser by `frontend/components/range-memory.tsx` (`<RangeMemory />` in `app/layout.tsx`, `useSearchParams` inside Suspense) whenever the address holds a valid period. Read on the server in `flat()` (`frontend/lib/api.ts`): when the address has no `range`, the cookie fills in `range`/`from`/`to`, so every page (dashboard, MEXC, Toobit, PancakeSwap, flows, swaps, wallets, CSV export links) uses it. Pure helpers (`pickRange`, `encodeRange`, `decodeRange`) in `frontend/lib/saved-range.ts`; junk cookies are ignored.
   - **Rules:** a period in the address always wins and becomes the new remembered one. Nothing remembered yet = each page keeps its own default (24H; Top wallets = All). After a pick, Top wallets also follows it.

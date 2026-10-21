@@ -77,7 +77,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
   const q = new URLSearchParams(clean(r));
   const exports = [
     { href: `/api-export/activity?${q}`, title: 'All activity', hint: 'Exchange transfers and PancakeSwap swaps together, newest first' },
-    { href: `/api-export/flows?${q}`, title: 'Exchange flows only', hint: 'MEXC and Toobit deposits and withdrawals' },
+    { href: `/api-export/flows?${q}`, title: 'Exchange flows only', hint: 'MEXC, Toobit, XT and BingX deposits and withdrawals' },
     { href: `/api-export/swaps?${q}`, title: 'PancakeSwap swaps only', hint: 'V2 and V3 buys and sells' },
   ];
 

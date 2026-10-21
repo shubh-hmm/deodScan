@@ -48,6 +48,20 @@ exchanges:
         note: "Address labelled Cobo custody by Dune; designated Toobit by project owner"
         source: user_supplied
         verified: false
+  xt:
+    name: XT
+    addresses:
+      - address: "0xdb3ded7731c781224ec292e2163d9554c094fd7c"
+        address_type: hot_wallet   # EOA (no contract code), nonce 1.02M, held ~1.11M DEOD on 2026-10-21 (eth_getCode / eth_getTransactionCount / balanceOf)
+        source: user_supplied      # owner supplied the BscScan link 2026-10-21; Dune label not checked (would cost credits)
+        verified: false
+  bingx:
+    name: BingX
+    addresses:
+      - address: "0x6260384eec5b6efcb87874bbcfd40914da9dbfd5"
+        address_type: hot_wallet   # EOA (no contract code), nonce 608, held ~12.02M DEOD on 2026-10-21 (same on-chain checks)
+        source: user_supplied      # owner supplied the BscScan link 2026-10-21; Dune label not checked (would cost credits)
+        verified: false
 
 # NOTE: the supplied V2/V3 labels were swapped. Corrected here based on factory() and factory lookups.
 pancakeswap:

@@ -13,7 +13,7 @@ import { Splash } from '@/components/splash';
 
 export const metadata: Metadata = {
   title: 'DEODScan',
-  description: 'DEODScan: read-only DEOD flow monitoring on BNB Chain: MEXC, Toobit and PancakeSwap V2/V3.',
+  description: 'DEODScan: read-only DEOD flow monitoring on BNB Chain: MEXC, Toobit, XT, BingX and PancakeSwap V2/V3.',
 };
 
 /** The header must never take a page down: if the API or CoinGecko is unreachable, render without the value. */

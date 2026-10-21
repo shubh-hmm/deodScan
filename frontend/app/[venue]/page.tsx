@@ -5,7 +5,7 @@ import PancakePage from './pancakeswap';
 
 export const dynamic = 'force-dynamic';
 
-// Routes: /MEXC, /Toobit, /PancakeSwap (case-insensitive). Exchange pages exist for every exchange the API reports.
+// Routes: /MEXC, /Toobit, /XT, /BingX, /PancakeSwap (case-insensitive). Exchange pages exist for every exchange the API reports.
 export default async function Venue({ params, searchParams }: { params: Promise<{ venue: string }>; searchParams: SearchParams }) {
   const { venue } = await params;
   const slug = venue.toLowerCase();

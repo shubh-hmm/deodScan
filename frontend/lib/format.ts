@@ -46,7 +46,7 @@ export function fmtAgo(v: string | null | undefined) {
 export const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 export const VENUE_NAMES: Record<string, string> = {
-  mexc: 'MEXC', toobit: 'Toobit',
+  mexc: 'MEXC', toobit: 'Toobit', xt: 'XT', bingx: 'BingX',
   pancakeswap_v2: 'PancakeSwap V2', pancakeswap_v3: 'PancakeSwap V3',
 };
 export const venueName = (v: string) => VENUE_NAMES[v] ?? v;
