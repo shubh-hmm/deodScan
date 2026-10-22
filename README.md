@@ -215,6 +215,18 @@ The **Alerts** page lists automatic alerts and manages a watchlist of wallets. D
 - **Limits:** monitoring covers only recorded transactions (transfers to/from the monitored exchange addresses and swaps on the monitored pools). It cannot see other wallet transfers, and data arrives once per finished day or when you press Update today, so alerts are not real time. A wallet added to the watchlist alerts only on activity recorded afterwards.
 - The first start after this update applies database migration `003_alerts.sql` automatically (new tables only; nothing existing is changed).
 
+### Telegram notifications (free, optional)
+
+Every new alert can also be sent to your Telegram. Detection never depends on it: with no bot configured, or if Telegram is down, alerts are still stored and shown on the Alerts page (and retried later).
+
+1. In Telegram, message **@BotFather**, send `/newbot` and copy the **bot token**.
+2. Open your new bot, press **Start** and send it any message.
+3. Open `https://api.telegram.org/bot<TOKEN>/getUpdates` in a browser (replace `<TOKEN>`). Find `"chat":{"id":123456789` and copy that **number** (a username such as `bimalpradhan` does not work).
+4. Put both in `backend/.env` (never in git): `TELEGRAM_BOT_TOKEN=...` and `TELEGRAM_CHAT_ID=123456789`, then restart the backend (this also applies database migration `004_notifications.sql`).
+5. Check it: `npx tsx worker/src/cli.ts notify-test` in the backend folder sends one clearly marked test message.
+
+Each message has the amount, sender, recipient, time, transaction hash and explorer link. An alert is sent once; at most 20 messages go out per run (a burst continues on the next run); only alerts created after Telegram was first switched on are sent, so enabling it never floods you with old alerts.
+
 ## Sign-in (admin only)
 
 The whole dashboard sits behind a sign-in page for one admin (Bimal Pradhan). Without a valid session every page redirects to `/login`, and the page scripts' routes (`/api-price`, `/api-refresh`, CSV exports) answer 401.

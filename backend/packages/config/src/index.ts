@@ -109,6 +109,10 @@ const EnvSchema = z.object({
   INTERNAL_API_KEY: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(16).optional()),
   // The dashboard's "Update today" button. Set to false on a public server (anyone could press it and spend Dune credits).
   REFRESH_TODAY_ENABLED: z.enum(['true', 'false']).default('true'),
+  // Telegram alerts (optional). Create a bot with @BotFather, press Start in it, and read your chat id from getUpdates. Keep the token secret.
+  // Checked where they are used (worker/src/alerts/notify.ts), so a typo here can only switch Telegram off, never stop the backend from starting.
+  TELEGRAM_BOT_TOKEN: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+  TELEGRAM_CHAT_ID: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
   API_PORT: z.coerce.number().int().default(4000),
   LOG_LEVEL: z.string().default('info'),
 });

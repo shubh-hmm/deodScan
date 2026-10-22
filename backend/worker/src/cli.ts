@@ -2,9 +2,11 @@
 //   npm run sync -- backfill [--query exchange_transfers|pancakeswap_swaps] --from 2026-01-01 [--to 2026-10-01] [--window-days 30]
 //   npx tsx worker/src/cli.ts today   (the unfinished current UTC day so far; costs credits, 10 min cooldown)
 //   npx tsx worker/src/cli.ts alerts [--rescan]   (scan stored data for alerts; database only, spends no credits)
+//   npx tsx worker/src/cli.ts notify-test   (send one test message to Telegram)
 //   npm run sync -- daily        (fetch every completed UTC day not yet synced; never the current day)
 import { closePool, getPool, migrate, seedFromConfig } from '@deod/db';
 import { scanAlerts } from './alerts/scan.js';
+import { notifyPending, senderFromEnv } from './alerts/notify.js';
 import { backfill, syncAllCompletedDays, syncToday, log, QUERIES, withSyncLock, type QueryName } from './sync.js';
 
 function arg(name: string) {
@@ -46,11 +48,19 @@ try {
     // Reads only the database: no Dune call, no credits. --rescan re-examines the last days; existing alerts are never duplicated.
     const r = await scanAlerts(getPool(), { rescan: process.argv.includes('--rescan') });
     log.info(r, 'alert scan complete');
+    try { log.info(await notifyPending(), 'alert notifications'); }
+    catch (e) { log.warn({ err: e instanceof Error ? e.message : String(e) }, 'alerts were scanned and stored; sending to Telegram failed'); }
+  } else if (cmd === 'notify-test') {
+    // Sends one clearly marked test message to Telegram so you can check the token and chat id. It stores nothing.
+    const s = senderFromEnv();
+    if (!s) throw new Error('TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are not set in backend/.env');
+    await s.send('DEODScan test message: Telegram alerts are connected. No alert was triggered.');
+    log.info('test message sent to Telegram');
   } else if (cmd === 'today') {
     const r = await syncToday();
     log.info(r, 'today so far fetched; the unfinished day is stored, the daily checkpoint is unchanged');
   } else {
-    console.error('usage: sync alerts [--rescan] | sync today | sync backfill --from YYYY-MM-DD [--to ...] [--window-days N] [--query name] | sync daily');
+    console.error('usage: sync alerts [--rescan] | sync notify-test | sync today | sync backfill --from YYYY-MM-DD [--to ...] [--window-days N] [--query name] | sync daily');
     process.exitCode = 2;
   }
 } catch (err) {

@@ -8,6 +8,7 @@ import {
 } from '@deod/db';
 
 import { scanAlerts } from './alerts/scan.js';
+import { notifyPending } from './alerts/notify.js';
 export { scanAlerts } from './alerts/scan.js';
 
 export const log = pino({ level: process.env.LOG_LEVEL ?? 'info', base: { svc: 'worker' } });
@@ -146,6 +147,13 @@ async function postProcess() {
     log.info({ ...a }, 'alert scan complete');
   } catch (err) {
     log.error({ err: err instanceof Error ? err.message : String(err) }, 'alert scan failed; the sync itself is unaffected');
+  }
+  // Telegram delivery is separate and optional: detection above never depends on it.
+  try {
+    const n = await notifyPending();
+    if (n.sent || n.failed || n.remaining) log.info({ ...n }, 'alert notifications');
+  } catch (err) {
+    log.error({ err: err instanceof Error ? err.message : String(err) }, 'sending alert notifications failed; the alerts are stored and will be retried');
   }
 }
 
