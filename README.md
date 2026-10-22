@@ -198,6 +198,16 @@ Avoid joining `tokens.transfers` to label tables: one exploratory query that did
 
 The period you pick (1H, 6H, 24H, 7D, 30D, All or a custom date range) stays selected on every page, in new tabs and after a reload. It is kept in a browser cookie named `deod_range` (one year). A period in the address always wins and becomes the new remembered one. To forget it, delete that cookie.
 
+## Ask DEODScan AI
+
+The **Ask AI** button in the top bar opens a chat panel where you ask questions about the DEOD data in plain language ("Which exchange had the largest withdrawal this month?"). It uses **OpenAI's API**; without a key it is switched off and nothing else is affected.
+
+**Set up:** create an API key at platform.openai.com (a separate paid account: set a spending limit there), then in `backend/.env` put `OPENAI_API_KEY=...`, and `OPENAI_MODEL=` a model your key can use (default `gpt-4.1`; check with `npx tsx worker/src/cli.ts ask-check`, which lists the models your key can use and spends nothing; add `--question "..."` to ask one real question, a few cents). `ASK_DAILY_LIMIT` (default 100) is the most questions per UTC day. Restart the backend (this also applies migration `006_ask_usage.sql`).
+
+**How it stays accurate:** the model never writes SQL and never sees anything but what 11 read-only tools return; each tool is a thin wrapper around a query the dashboard already uses (overview, summary, exchange stats, transfers, swaps, top wallets, wallet profile, alerts, data coverage). Before an answer is shown, **every figure in it is looked up in the tool results**; a figure that is not there (invented or computed by the model) makes the answer fail the check, the model gets one chance to correct it, and if it still fails the answer is withheld and only the retrieved data is shown. Each answer has a "Supporting data" section with the rows and transaction links behind it, and says when data is incomplete (synced once per finished day; exchanges whose history starts later; only recorded transfers).
+
+**Limits and privacy:** the question and the data the tools return (public on-chain figures, addresses, hashes) are sent to OpenAI; questions and answers are not stored (only daily counters). The panel is behind the dashboard sign-in. Answers can still be incomplete or misread: use the supporting data. The AI never labels wallets (whale, bot...) and gives no predictions or advice.
+
 ## Dashboard summary
 
 The **Summary** card at the top of the dashboard describes, in plain sentences, what the page shows for the selected period: exchange deposits and withdrawals and the net flow, each exchange's activity, the largest single transfer, PancakeSwap buying and selling, the change against the previous period of the same length, the alerts raised, and notes on what the data cannot show (data is synced once per finished UTC day; exchanges whose recorded history starts later). **Copy summary** copies it as text. API: `GET /api/summary?range=...`.

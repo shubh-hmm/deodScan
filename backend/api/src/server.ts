@@ -6,6 +6,7 @@ import { loadConfig, loadEnv } from '@deod/config';
 import { closePool, getPool, migrate, refreshWalletSummary, deriveExchangeFlows, seedFromConfig } from '@deod/db';
 import * as A from '@deod/analytics';
 import { syncAllCompletedDays, syncToday, todayCooldownSeconds, startBotFromEnv, apiFromEnv, MIN_ACCESS_CODE_LENGTH, SyncBusyError, SyncCooldownError } from '@deod/worker';
+import { createAsk, LlmError } from '@deod/ask';
 import { toCsv } from './csv.js';
 import { getPrice } from './price.js';
 
@@ -103,6 +104,22 @@ app.get('/api/price', async (req, reply) => {
 app.get('/api/overview', async (req) => A.overview(db, windowOf(req.query)));
 // Plain-language summary of the same period, written by fixed rules from the overview numbers (no AI).
 app.get('/api/summary', async (req) => A.summarize(db, windowOf(req.query)));
+
+// "Ask DEODScan AI": the model only picks read-only queries and words the answer; every figure is checked against the data before it is shown.
+// Off (and harmless) until OPENAI_API_KEY is set in backend/.env. The browser never sees the key; the dashboard reaches these routes through its signed-in proxy.
+const ask = createAsk(db);
+const AskBody = z.object({ question: z.string().max(2000), defaultRange: z.enum(['1h', '6h', '24h', '7d', '30d', 'all']).optional() });
+const ASK_STATUS: Record<LlmError['kind'], number> = { auth: 503, quota: 429, rate_limit: 429, model: 502, timeout: 504, other: 400 };
+app.get('/api/ask/status', async () => ask.status());
+app.post('/api/ask', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply) => {
+  const body = parse(AskBody, req.body);
+  try {
+    return await ask.ask(body.question, { defaultRange: body.defaultRange });
+  } catch (e) {
+    if (e instanceof LlmError) return reply.code(ASK_STATUS[e.kind]).send({ error: e.message, kind: e.kind });
+    throw e;
+  }
+});
 
 app.get('/api/flows/series', async (req) => {
   const { exchange } = parse(z.object({ exchange: z.string().regex(/^[a-z0-9_]+$/).optional() }).passthrough(), req.query);

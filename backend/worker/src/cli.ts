@@ -3,6 +3,7 @@
 //   npx tsx worker/src/cli.ts today   (the unfinished current UTC day so far; costs credits, 10 min cooldown)
 //   npx tsx worker/src/cli.ts alerts [--rescan]   (scan stored data for alerts; database only, spends no credits)
 //   npx tsx worker/src/cli.ts telegram-check   (check the bot token; sends nothing)
+//   npx tsx worker/src/cli.ts ask-check [--question "..."]   (check the OpenAI key and model; --question asks one real question and spends a few cents)
 //   npx tsx worker/src/cli.ts telegram-test   (one TEST message to everyone subscribed; not an alert)
 //   npx tsx worker/src/cli.ts telegram-users [--revoke <chat_id> | --restore <chat_id>]   (who is allowed in)
 //   npm run sync -- daily        (fetch every completed UTC day not yet synced; never the current day)
@@ -11,6 +12,7 @@ import { scanAlerts } from './alerts/scan.js';
 import { apiFromEnv, notifyPending } from './alerts/notify.js';
 import { MIN_ACCESS_CODE_LENGTH } from './telegram/bot.js';
 import { loadEnv } from '@deod/config';
+import { createAsk, listModels } from '@deod/ask';
 import { backfill, syncAllCompletedDays, syncToday, log, QUERIES, withSyncLock, type QueryName } from './sync.js';
 
 function arg(name: string) {
@@ -54,6 +56,22 @@ try {
     log.info(r, 'alert scan complete');
     try { log.info(await notifyPending(), 'alert notifications'); }
     catch (e) { log.warn({ err: e instanceof Error ? e.message : String(e) }, 'alerts were scanned and stored; sending to Telegram failed'); }
+  } else if (cmd === 'ask-check') {
+    // Checks "Ask DEODScan AI": the OpenAI key, whether the chosen model is available to it, and (only with --question "...") one real question,
+    // which uses a few cents of OpenAI credit. Without --question nothing is spent.
+    const env = loadEnv();
+    if (!env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not set in backend/.env');
+    const models = await listModels(env.OPENAI_API_KEY);
+    const ok = models.includes(env.OPENAI_MODEL);
+    log.info({ model: env.OPENAI_MODEL, available: ok, dailyLimit: env.ASK_DAILY_LIMIT }, ok ? 'OpenAI key works and the model is available' : 'OpenAI key works, but OPENAI_MODEL is not available to it: set OPENAI_MODEL to one of the models below');
+    if (!ok) console.log(models.filter((m) => /^(gpt|o\d|chatgpt)/.test(m)).join('\n'));
+    const question = arg('question');
+    if (ok && question) {
+      const r = await createAsk(getPool()).ask(question);
+      console.log(`\nAnswer (${r.verified ? 'every figure checked against your data' : 'WITHHELD: a figure could not be checked'}):\n${r.answer}`);
+      console.log(`\nTools used: ${r.data.map((d) => `${d.tool}${d.error ? ' (error)' : ''}`).join(', ') || 'none'}`);
+      log.info({ ...r.usage, remainingToday: r.remainingToday }, 'tokens used');
+    }
   } else if (cmd === 'telegram-check') {
     // Checks the bot token with Telegram (getMe). Sends no message and needs no database.
     const api = apiFromEnv();
@@ -80,7 +98,7 @@ try {
     const r = await syncToday();
     log.info(r, 'today so far fetched; the unfinished day is stored, the daily checkpoint is unchanged');
   } else {
-    console.error('usage: sync alerts [--rescan] | sync telegram-test | sync telegram-check | sync telegram-users [--revoke <chat_id>] | sync today | sync backfill --from YYYY-MM-DD [--to ...] [--window-days N] [--query name] | sync daily');
+    console.error('usage: sync alerts [--rescan] | sync telegram-test | sync telegram-check | sync ask-check [--question "..."] | sync telegram-users [--revoke <chat_id>] | sync today | sync backfill --from YYYY-MM-DD [--to ...] [--window-days N] [--query name] | sync daily');
     process.exitCode = 2;
   }
 } catch (err) {

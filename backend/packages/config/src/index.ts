@@ -113,6 +113,11 @@ const EnvSchema = z.object({
   // checked where they are used (worker/src/telegram), so a typo can only switch the bot off, never stop the backend from starting.
   TELEGRAM_BOT_TOKEN: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
   TELEGRAM_ACCESS_CODE: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+  // "Ask DEODScan AI" (optional). The assistant uses OpenAI's API; without OPENAI_API_KEY it is simply off. OPENAI_MODEL must be a model your key can use
+  // (run: npx tsx worker/src/cli.ts ask-check). ASK_DAILY_LIMIT caps the questions per UTC day, so the cost cannot run away.
+  OPENAI_API_KEY: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+  OPENAI_MODEL: z.preprocess((v) => (v === '' ? undefined : v), z.string().default('gpt-4.1')),
+  ASK_DAILY_LIMIT: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(1).max(10000).default(100)),
   API_PORT: z.coerce.number().int().default(4000),
   LOG_LEVEL: z.string().default('info'),
 });

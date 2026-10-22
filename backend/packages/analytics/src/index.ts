@@ -180,7 +180,8 @@ export const FlowFilter = z.object({
 });
 
 export async function listFlows(db: pg.Pool, w: Window, f: z.infer<typeof FlowFilter>) {
-  const order = f.sort === 'amount' ? 'amount DESC, block_time DESC' : 'block_time DESC, evt_index DESC';
+  // Qualified: a bare "amount" in ORDER BY would mean the text output column (amount::text) and sort "9.9" above "1270524.83".
+  const order = f.sort === 'amount' ? 'exchange_flows.amount DESC, block_time DESC' : 'block_time DESC, evt_index DESC';
   const where = `block_time >= $1 AND block_time < $2
     AND ($3::text IS NULL OR exchange = $3) AND ($4::text IS NULL OR direction = $4)
     AND ($5::text IS NULL OR wallet_address = $5)
@@ -265,7 +266,8 @@ export const SwapFilter = z.object({
 });
 
 export async function listSwaps(db: pg.Pool, w: Window, f: z.infer<typeof SwapFilter>) {
-  const order = f.sort === 'amount' ? 'deod_amount DESC, block_time DESC' : 'block_time DESC, evt_index DESC';
+  // Qualified for the same reason as in listFlows: bare deod_amount would be the text output column.
+  const order = f.sort === 'amount' ? 'dex_swaps.deod_amount DESC, block_time DESC' : 'block_time DESC, evt_index DESC';
   const where = `block_time >= $1 AND block_time < $2 AND ($3::text = 'all' OR version = $3)
     AND ($4::text IS NULL OR side = $4) AND ($5::text IS NULL OR trader_address = $5)
     AND ($6::numeric IS NULL OR deod_amount >= $6) AND ($7::numeric IS NULL OR deod_amount <= $7)`;

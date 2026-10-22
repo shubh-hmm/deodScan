@@ -10,6 +10,7 @@ import { BrandMark, Icons } from '@/components/icons';
 import { MobileNav, SideNav } from '@/components/nav-links';
 import { PriceTicker, type PriceData } from '@/components/price-ticker';
 import { RefreshToday } from '@/components/refresh-today';
+import { AskPanel } from '@/components/ask-panel';
 import { RangeMemory } from '@/components/range-memory';
 import { Splash } from '@/components/splash';
 import { AUTHED_HEADER } from '@/lib/auth';
@@ -74,6 +75,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <header className="sticky top-0 z-20 flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-line bg-page/70 px-4 py-3 backdrop-blur-md md:px-6">
               <PriceTicker initial={price} />
               <RefreshToday />
+              <AskPanel />
               <form action="/search" className="relative ml-auto w-full max-w-md sm:w-80">
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted">{Icons.search}</span>
                 <input name="q" placeholder="Search wallet or transaction hash" className="w-full !rounded-xl !border-line-strong !bg-surface/90 !py-2 !pl-9" aria-label="Search" />
