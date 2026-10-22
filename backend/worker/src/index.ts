@@ -33,7 +33,7 @@ function tick(): Promise<void> {
   return inFlight;
 }
 
-async function shutdown(reason: string) {
+async function shutdown(reason: string, exitCode = 0) {
   if (stopping) return;
   stopping = true;
   clearInterval(timer);
@@ -46,11 +46,19 @@ async function shutdown(reason: string) {
     log.info({ reason }, 'shutdown requested');
   }
   await closePool();
-  process.exit(0);
+  process.exit(exitCode);
 }
 
 // Handlers go in before the first sync, so a shutdown during it is handled too.
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGBREAK'] as const) process.on(sig, () => void shutdown(sig));
+// A stray failed promise is logged and the worker carries on. An error nobody caught means the process may be in an unknown state: finish the
+// running sync if it can, exit with an error, and let the process manager (pm2, systemd, Docker, the host) start a fresh worker.
+process.on('unhandledRejection', (err) => log.error({ err: err instanceof Error ? err.message : String(err) }, 'unhandled promise rejection (ignored, the worker keeps running)'));
+process.on('uncaughtException', (err) => {
+  log.error({ err: err.message }, 'uncaught exception: shutting down so the process manager can restart the worker');
+  setTimeout(() => process.exit(1), 30_000).unref();
+  void shutdown('uncaught exception', 1);
+});
 process.on('message', (m) => { if (m === 'shutdown') void shutdown('asked by the parent process'); });
 
 await migrate(getPool());

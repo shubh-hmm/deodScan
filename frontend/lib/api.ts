@@ -15,10 +15,17 @@ export async function api<T = any>(path: string, params?: Record<string, string 
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(params ?? {})) if (v !== undefined && v !== '') qs.set(k, v);
   const url = `${BASE}${path}${qs.size ? `?${qs}` : ''}`;
-  const res = await fetch(url, { cache: 'no-store', headers: apiHeaders() });
+  // A page must never wait forever on a stalled backend: after 25 s it fails with a clear message and the error page offers a retry.
+  let res: Response;
+  try {
+    res = await fetch(url, { cache: 'no-store', headers: apiHeaders(), signal: AbortSignal.timeout(25_000) });
+  } catch (e) {
+    const timedOut = e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError');
+    throw new ApiError(timedOut ? 'The backend took too long to answer.' : 'The backend is not answering.', timedOut ? 504 : 503);
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new ApiError(body.error ?? `API ${res.status}`, res.status);
+    throw new ApiError(res.status === 429 ? 'Too many requests in a short time. Please wait a moment and try again.' : (body.error ?? `API ${res.status}`), res.status);
   }
   return res.json() as Promise<T>;
 }

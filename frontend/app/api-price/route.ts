@@ -3,7 +3,7 @@ import { API_BASE, apiHeaders } from '@/lib/api-base';
 
 export async function GET() {
   try {
-    const res = await fetch(`${API_BASE}/api/price`, { cache: 'no-store', headers: apiHeaders() });
+    const res = await fetch(`${API_BASE}/api/price`, { cache: 'no-store', headers: apiHeaders(), signal: AbortSignal.timeout(10_000) });
     return new Response(res.body, {
       status: res.status,
       headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },

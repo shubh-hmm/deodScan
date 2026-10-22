@@ -198,6 +198,10 @@ Avoid joining `tokens.transfers` to label tables: one exploratory query that did
 
 The period you pick (1H, 6H, 24H, 7D, 30D, All or a custom date range) stays selected on every page, in new tabs and after a reload. It is kept in a browser cookie named `deod_range` (one year). A period in the address always wins and becomes the new remembered one. To forget it, delete that cookie.
 
+## Going live
+
+Before putting DEODScan on a server others can reach, read **docs/GOING_LIVE.md**: the settings that must be set, HTTPS and keeping the API private, keeping the processes alive, backups, monitoring (`GET /api/health` reports data freshness), the built-in cost limits (Dune per-run credit and time limit, daily AI question limit) and what to do when something goes wrong.
+
 ## Ask DEODScan AI
 
 The **Ask AI** button in the top bar opens a chat panel where you ask questions about the DEOD data in plain language ("Which exchange had the largest withdrawal this month?"). It uses **OpenAI's API**; without a key it is switched off and nothing else is affected.

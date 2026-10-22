@@ -17,6 +17,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  // A question (at most 500 characters) with a few earlier answers is far below this: refuse anything bigger before reading it.
+  if (Number(req.headers.get('content-length') ?? 0) > 20_000) return Response.json({ error: 'The question is too long.' }, { status: 413, headers });
   let question = '';
   let history: { question: string; answer: string }[] = [];
   try {

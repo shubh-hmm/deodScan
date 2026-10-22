@@ -38,8 +38,20 @@ export function RangePicker({ path, params }: { path: string; params: Record<str
 }
 
 /** Range params forwarded to the API. */
+const KNOWN_RANGES = new Set(['1h', '6h', '24h', '7d', '30d', 'all', 'custom']);
+const DAY_TEXT = /^\d{4}-\d{2}-\d{2}/;
+
+/**
+ * The period for a page, from the address. Anything unknown or malformed (a typo, an old bookmark, a hand-edited link) falls back to the
+ * default period instead of sending the backend a value it will reject and showing an error page.
+ */
 export function rangeParams(p: Record<string, string | undefined>) {
-  return { range: p.range ?? '24h', from: p.from, to: p.to };
+  const range = p.range && KNOWN_RANGES.has(p.range) ? p.range : '24h';
+  if (range === 'custom') {
+    if (!p.from || !DAY_TEXT.test(p.from) || (p.to && !DAY_TEXT.test(p.to))) return { range: '24h', from: undefined, to: undefined };
+    return { range, from: p.from, to: p.to };
+  }
+  return { range, from: undefined, to: undefined };
 }
 
 export function windowLabel(w: { from: string | null; to: string; range: string }) {

@@ -20,7 +20,14 @@ function lockedFor(key: string, now: number): number {
   const a = attempts.get(key);
   return a && a.until > now ? Math.ceil((a.until - now) / 60_000) : 0;
 }
+/** Forgets finished lockouts and caps the table, so many different addresses can never grow it without end. */
+function prune(now: number) {
+  if (attempts.size < 1000) return;
+  for (const [k, a] of attempts) if (a.until <= now && a.fails === 0) attempts.delete(k);
+  if (attempts.size > 5000) for (const k of [...attempts.keys()].slice(0, attempts.size - 5000)) if (k !== 'any') attempts.delete(k);
+}
 function fail(key: string, limit: number, now: number) {
+  prune(now);
   const a = attempts.get(key) ?? { fails: 0, until: 0 };
   a.fails += 1;
   if (a.fails >= limit) { a.fails = 0; a.until = now + LOCK_MS; }

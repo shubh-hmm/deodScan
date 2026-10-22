@@ -9,7 +9,7 @@ import { ExchangeCards } from '@/components/flow-bars';
 import { ExportMenu } from '@/components/export-menu';
 import { Icons } from '@/components/icons';
 import { RangePicker, rangeParams, windowLabel } from '@/components/range';
-import { SummaryCard, type SummaryData } from '@/components/summary-card';
+import { SummaryToggle } from '@/components/summary-toggle';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,15 +48,13 @@ function ShareCard({ title, rows, kind }: { title: string; rows: { name: string;
 export default async function Dashboard({ searchParams }: { searchParams: SearchParams }) {
   const p = await flat(searchParams);
   const r = rangeParams(p);
-  const [m, ov, series, recent, hourly, top, summary] = await Promise.all([
+  const [m, ov, series, recent, hourly, top] = await Promise.all([
     meta(),
     api('/api/overview', r),
     api('/api/flows/series', r),
     api('/api/flows', { ...r, limit: '10' }),
     api('/api/flows/hourly', r),
     api('/api/wallets/top', { ...r, limit: '8', sort: 'volume' }),
-    // A summary that cannot be built (older backend, a hiccup) must never take the dashboard down: the page simply shows without it.
-    api<SummaryData>('/api/summary', r).catch(() => null),
   ]);
 
   // Previous period of the same length, for the change shown on each KPI card ("all time" has no previous period).
@@ -93,7 +91,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
 
       <div className="mb-4"><Note>{m.freshnessNote}</Note></div>
 
-      {summary ? <div className="mb-4"><SummaryCard s={summary} /></div> : null}
+      <SummaryToggle range={r.range} from={r.from} to={r.to} />
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
         <Stat icon={Icons.exchange} label="Net exchange flow" value={fmtDeod(t.net, { sign: true })} title={`${t.net} DEOD`}

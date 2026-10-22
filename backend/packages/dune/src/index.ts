@@ -3,8 +3,10 @@ import { resolve } from 'node:path';
 import { backendRoot } from '@deod/config';
 
 const API = 'https://api.dune.com/api/v1';
+// Dune spells the cancelled state with two L's; the single-L spelling is kept in case an older response uses it. A state missing from
+// this list would be waited on until the run timeout.
 const TERMINAL = new Set([
-  'QUERY_STATE_COMPLETED', 'QUERY_STATE_FAILED', 'QUERY_STATE_CANCELED',
+  'QUERY_STATE_COMPLETED', 'QUERY_STATE_FAILED', 'QUERY_STATE_CANCELLED', 'QUERY_STATE_CANCELED',
   'QUERY_STATE_EXPIRED', 'QUERY_STATE_COMPLETED_PARTIAL',
 ]);
 
@@ -27,25 +29,56 @@ const noop: Logger = { info() {}, warn() {} };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+const num = (v: string | undefined, fallback: number) => {
+  const n = Number(v);
+  return v !== undefined && v !== '' && Number.isFinite(n) && n > 0 ? n : fallback;
+};
+
+export interface DuneOptions {
+  maxRetries: number;
+  pageSize: number;
+  pollStartMs: number;
+  pollMaxMs: number;
+  retryBaseMs: number;
+  /** Longest wait for one HTTP call to Dune. */
+  requestTimeoutMs: number;
+  /** A run still going after this long is cancelled (Dune keeps billing a run until it ends). */
+  maxRunMs: number;
+  /** A run whose cost so far exceeds this many credits is cancelled. Normal daily runs cost well under 1; a 3-month history load about 10. */
+  maxCreditsPerRun: number;
+}
+
+/** Limits that protect the Dune credit balance. Environment: DUNE_MAX_RUN_MINUTES (default 10), DUNE_MAX_CREDITS_PER_RUN (default 30). */
+export const defaultDuneOptions = (): DuneOptions => ({
+  maxRetries: 6, pageSize: 5000, pollStartMs: 1000, pollMaxMs: 15_000, retryBaseMs: 1000, requestTimeoutMs: 60_000,
+  maxRunMs: num(process.env.DUNE_MAX_RUN_MINUTES, 10) * 60_000,
+  maxCreditsPerRun: num(process.env.DUNE_MAX_CREDITS_PER_RUN, 30),
+});
+
 export class DuneClient {
+  private readonly opts: DuneOptions;
+
   constructor(
     private readonly apiKey: string,
     private readonly log: Logger = noop,
-    private readonly opts = { maxRetries: 6, pageSize: 5000, pollMaxMs: 15_000, timeoutMs: 30 * 60_000 },
+    opts: Partial<DuneOptions> = {},
+    private readonly fetchImpl: typeof fetch = fetch,
   ) {
     if (!apiKey) throw new DuneError('DUNE_API_KEY is not configured');
+    this.opts = { ...defaultDuneOptions(), ...opts };
   }
 
   private async request<T>(path: string, init: RequestInit = {}, attempt = 0): Promise<T> {
     let res: Response;
     try {
-      res = await fetch(API + path, {
+      res = await this.fetchImpl(API + path, {
         ...init,
+        signal: AbortSignal.timeout(this.opts.requestTimeoutMs),
         headers: { 'X-Dune-Api-Key': this.apiKey, 'Content-Type': 'application/json', ...init.headers },
       });
     } catch (err) {
       if (attempt >= this.opts.maxRetries) throw new DuneError(`network error on ${path}: ${(err as Error).message}`);
-      await sleep(1000 * 2 ** attempt);
+      await sleep(this.opts.retryBaseMs * 2 ** attempt);
       return this.request(path, init, attempt + 1);
     }
     if (res.status === 429 || res.status >= 500) {
@@ -53,7 +86,7 @@ export class DuneClient {
         throw new DuneError(`Dune ${res.status} on ${path} after ${attempt} retries`, res.status, await res.text());
       }
       const retryAfter = Number(res.headers.get('retry-after'));
-      const wait = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1000 * 2 ** attempt;
+      const wait = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : this.opts.retryBaseMs * 2 ** attempt;
       this.log.warn({ status: res.status, path, wait, attempt }, 'dune rate-limited/server error; backing off');
       await sleep(wait);
       return this.request(path, init, attempt + 1);
@@ -61,6 +94,16 @@ export class DuneClient {
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new DuneError(`Dune ${res.status} on ${path}`, res.status, body);
     return body as T;
+  }
+
+  /** Asks Dune to stop a run. Best effort: a failure here must not hide the real reason the run was abandoned. */
+  private async cancel(executionId: string, reason: string) {
+    try {
+      await this.request(`/execution/${executionId}/cancel`, { method: 'POST' });
+      this.log.warn({ executionId, reason }, 'dune execution cancelled');
+    } catch (err) {
+      this.log.warn({ executionId, reason, err: (err as Error).message }, 'could not cancel the dune execution; check it on dune.com');
+    }
   }
 
   /** Executes raw SQL (POST /v1/sql/execute), waits for completion, and pages through all rows. */
@@ -72,16 +115,26 @@ export class DuneClient {
     this.log.info({ executionId: execution_id }, 'dune execution started');
 
     const started = Date.now();
-    let delay = 1000;
+    let delay = this.opts.pollStartMs;
     let status: { state: string; error?: unknown; execution_cost_credits?: number };
-    for (;;) {
-      status = await this.request(`/execution/${execution_id}/status`);
-      if (TERMINAL.has(status.state)) break;
-      if (Date.now() - started > this.opts.timeoutMs) {
-        throw new DuneError(`execution ${execution_id} timed out in state ${status.state}`);
+    try {
+      for (;;) {
+        status = await this.request(`/execution/${execution_id}/status`);
+        if (TERMINAL.has(status.state)) break;
+        // A running query is billed for as long as it runs: stop it when it takes too long or has already cost too much.
+        const cost = status.execution_cost_credits ?? 0;
+        if (cost > this.opts.maxCreditsPerRun) {
+          throw new DuneError(`execution ${execution_id} was stopped: it had already cost ${cost.toFixed(1)} credits, over the limit of ${this.opts.maxCreditsPerRun} per run (raise DUNE_MAX_CREDITS_PER_RUN for a deliberately large load)`);
+        }
+        if (Date.now() - started > this.opts.maxRunMs) {
+          throw new DuneError(`execution ${execution_id} was stopped: still running after ${Math.round(this.opts.maxRunMs / 60_000)} minutes (cost so far ${cost.toFixed(1)} credits; raise DUNE_MAX_RUN_MINUTES for a deliberately large load)`);
+        }
+        await sleep(delay);
+        delay = Math.min(delay * 1.5, this.opts.pollMaxMs);
       }
-      await sleep(delay);
-      delay = Math.min(delay * 1.5, this.opts.pollMaxMs);
+    } catch (err) {
+      await this.cancel(execution_id, err instanceof Error ? err.message : 'error while waiting');
+      throw err;
     }
     // A partial result means truncated data; never ingest it silently.
     if (status.state !== 'QUERY_STATE_COMPLETED') {

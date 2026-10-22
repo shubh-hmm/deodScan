@@ -18,7 +18,15 @@ const app = Fastify({
   logger: { level: env.LOG_LEVEL, base: { svc: 'api' } },
   // Reject unknown query params types early; Zod does the real validation per route.
   ajv: { customOptions: { coerceTypes: false } },
+  // Requests are small (the biggest body is a question of at most 2,000 characters), so a large body is refused early; and no request may hold
+  // a connection for more than 2.5 minutes (the slowest legitimate one is an AI question).
+  bodyLimit: 100_000,
+  requestTimeout: 150_000,
 });
+
+// A query that runs for more than a minute is a mistake or an attack, not a dashboard page: the database cancels it, so one bad request cannot
+// pile up and exhaust the connection pool. (The SET is queued ahead of the first real query on each new connection.)
+db.on('connect', (client) => { void client.query('SET statement_timeout = 60000').catch(() => {}); });
 
 await app.register(rateLimit, { max: 300, timeWindow: '1 minute' });
 
@@ -48,7 +56,11 @@ function windowOf(q: unknown) {
 
 app.setErrorHandler((err, req, reply) => {
   if (err instanceof BadRequest) return reply.code(400).send({ error: err.message });
-  if ((err as { statusCode?: number }).statusCode === 429) return reply.code(429).send({ error: 'rate limited' });
+  const status = (err as { statusCode?: number }).statusCode;
+  if (status === 429) return reply.code(429).send({ error: 'rate limited' });
+  // The server's own refusals of a bad request (broken JSON, body too large, wrong content type) are the caller's mistake: answer with that
+  // 4xx and a fixed message, never a 500 and never the internal wording.
+  if (status && status >= 400 && status < 500) return reply.code(status).send({ error: status === 413 ? 'request too large' : status === 415 ? 'unsupported content type' : 'invalid request' });
   req.log.error({ err }, 'request failed');
   return reply.code(500).send({ error: 'internal error' });
 });
@@ -73,9 +85,13 @@ const walletParam = z.object({ address: z.string().regex(/^0x[0-9a-fA-F]{40}$/).
 // Public read-only routes
 // ---------------------------------------------------------------------------
 
-app.get('/api/health', async () => {
+// Health check for uptime monitors: fails (HTTP 500) when the database does not answer; reports how old the synced data is, which a monitor can
+// alert on (the daily sync stopped) without the API itself being unhealthy.
+app.get('/api/health', { config: { rateLimit: false } }, async () => {
   await db.query('SELECT 1');
-  return { ok: true };
+  const through = await A.dataThrough(db).catch(() => null);
+  const ageHours = through ? Math.round((Date.now() - through.getTime()) / 36e5) : null;
+  return { ok: true, dataThrough: through ? through.toISOString() : null, dataAgeHours: ageHours, dataStale: ageHours === null || ageHours > 48 };
 });
 
 app.get('/api/meta', async () => ({
@@ -119,7 +135,8 @@ app.get('/api/ask/status', async () => ask.status());
 app.post('/api/ask', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply) => {
   const body = parse(AskBody, req.body);
   try {
-    return await ask.ask(body.question, { defaultRange: body.defaultRange, history: body.history });
+    // One question may take at most two minutes in total (several model calls), however slow the AI service is.
+    return await ask.ask(body.question, { defaultRange: body.defaultRange, history: body.history, signal: AbortSignal.timeout(120_000) });
   } catch (e) {
     if (e instanceof LlmError) return reply.code(ASK_STATUS[e.kind]).send({ error: e.message, kind: e.kind });
     throw e;
@@ -226,7 +243,10 @@ app.get('/api/telegram/status', async () => {
   const code = env.TELEGRAM_ACCESS_CODE;
   const configured = !!env.TELEGRAM_BOT_TOKEN && !!code && code.length >= MIN_ACCESS_CODE_LENGTH;
   if (configured && (!botName || Date.now() - botName.at > 600_000)) {
-    botName = { at: Date.now(), name: await apiFromEnv()?.getMe().then((m) => m.username, () => null) ?? null };
+    // A malformed token makes apiFromEnv() throw: that must only mean "no bot name", never an error on this route.
+    let name: string | null = null;
+    try { name = (await apiFromEnv()?.getMe().then((m) => m.username, () => null)) ?? null; } catch { name = null; }
+    botName = { at: Date.now(), name };
   }
   const { rows: [c] } = await db.query(`SELECT count(*) FILTER (WHERE status IN ('authorized', 'subscribed'))::int AS allowed, count(*) FILTER (WHERE status = 'subscribed')::int AS subscribed FROM telegram_users`);
   return { configured, botUsername: configured ? botName?.name ?? null : null, allowed: c.allowed as number, subscribed: c.subscribed as number };
@@ -336,21 +356,36 @@ app.register(async (admin) => {
 
 await migrate(db);
 await seedFromConfig(db);
-await app.listen({ port: env.API_PORT, host: process.env.API_HOST ?? '127.0.0.1' });
+// Listening beyond this computer without the shared key would put the whole API (every wallet, every CSV export) on the network for anyone who
+// can reach it. Refuse that, instead of trusting that someone remembers to set the key.
+const host = process.env.API_HOST ?? '127.0.0.1';
+if (!['127.0.0.1', '::1', 'localhost'].includes(host) && !env.INTERNAL_API_KEY) {
+  app.log.fatal({ host }, 'API_HOST is not this computer, but INTERNAL_API_KEY is not set: refusing to start. Set INTERNAL_API_KEY (and the same value in the dashboard) or listen on 127.0.0.1');
+  process.exit(1);
+}
+await app.listen({ port: env.API_PORT, host });
 // The Telegram bot (people send the access code, then opt in to alerts) is read in the background by this process. Off unless configured.
 const bot = startBotFromEnv(db, app.log);
 
 // Graceful shutdown: stop accepting requests, let running ones finish, close the database pool. Triggered by Ctrl+C / SIGTERM /
 // Ctrl+Break, or by a 'shutdown' message from `npm run dev` (signals do not work between processes on Windows, messages do).
 let closing = false;
-async function shutdown(reason: string) {
+async function shutdown(reason: string, exitCode = 0) {
   if (closing) return;
   closing = true;
   app.log.info({ reason }, 'shutting down');
   try { await bot?.stop(); } catch (err) { app.log.error({ err }, 'error while stopping the telegram bot'); }
   try { await app.close(); } catch (err) { app.log.error({ err }, 'error while closing the server'); }
   await closePool();
-  process.exit(0);
+  process.exit(exitCode);
 }
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGBREAK'] as const) process.on(sig, () => void shutdown(sig));
+// A stray failed promise (say a Telegram call) is logged and the server keeps serving. An error nobody caught means the process may be in an
+// unknown state: close down in an orderly way and exit with an error, so the process manager (pm2, systemd, Docker, the host) starts a fresh one.
+process.on('unhandledRejection', (err) => app.log.error({ err }, 'unhandled promise rejection (ignored, the server keeps running)'));
+process.on('uncaughtException', (err) => {
+  app.log.fatal({ err }, 'uncaught exception: shutting down so the process manager can restart the API');
+  setTimeout(() => process.exit(1), 5000).unref();
+  void shutdown('uncaught exception', 1);
+});
 process.on('message', (m) => { if (m === 'shutdown') void shutdown('asked by the parent process'); });

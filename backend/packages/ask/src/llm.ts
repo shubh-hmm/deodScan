@@ -58,7 +58,7 @@ export function openAiClient(apiKey: string, model: string): LlmClient {
         };
       } catch (e) {
         if (e instanceof LlmError) throw e;
-        if (e instanceof OpenAI.APIConnectionTimeoutError) throw new LlmError('The AI service took too long to answer. Please try again.', 'timeout');
+        if (e instanceof OpenAI.APIConnectionTimeoutError || e instanceof OpenAI.APIUserAbortError) throw new LlmError('The AI service took too long to answer. Please try again.', 'timeout');
         if (e instanceof OpenAI.APIError) {
           if (e.status === 401) throw new LlmError('The OpenAI API key was rejected. Check OPENAI_API_KEY in backend/.env.', 'auth');
           if (e.status === 429 && e.code === 'insufficient_quota') throw new LlmError('The OpenAI account has no credit or hit its spending limit. Check billing at platform.openai.com.', 'quota');

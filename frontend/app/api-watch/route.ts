@@ -6,7 +6,7 @@ const down = () => Response.json({ error: 'The backend is not running (start npm
 
 async function forward(path: string, init: RequestInit) {
   try {
-    const res = await fetch(`${API_BASE}${path}`, { ...init, cache: 'no-store', headers: { ...apiHeaders(), ...(init.body ? { 'content-type': 'application/json' } : {}) } });
+    const res = await fetch(`${API_BASE}${path}`, { ...init, cache: 'no-store', signal: AbortSignal.timeout(30_000), headers: { ...apiHeaders(), ...(init.body ? { 'content-type': 'application/json' } : {}) } });
     return new Response(res.body, { status: res.status, headers });
   } catch {
     return down();
@@ -16,6 +16,8 @@ async function forward(path: string, init: RequestInit) {
 export const GET = () => forward('/api/watchlist', { method: 'GET' });
 
 export async function POST(req: Request) {
+  // A watchlist entry is a few hundred bytes: refuse anything big before reading it.
+  if (Number(req.headers.get('content-length') ?? 0) > 5_000) return Response.json({ error: 'The request is too large.' }, { status: 413, headers });
   const body = await req.text();
   return forward('/api/watchlist', { method: 'POST', body });
 }

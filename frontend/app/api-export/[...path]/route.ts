@@ -8,7 +8,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ path: st
   if (!ALLOWED.some((re) => re.test(path))) return new Response('not found', { status: 404 });
   const qs = new URL(req.url).searchParams;
   if (!path.endsWith('.csv')) qs.set('format', 'csv');
-  const res = await fetch(`${API_BASE}/api/${path}?${qs}`, { cache: 'no-store', headers: apiHeaders() });
+  const res = await fetch(`${API_BASE}/api/${path}?${qs}`, { cache: 'no-store', headers: apiHeaders(), signal: AbortSignal.timeout(120_000) });
   return new Response(res.body, {
     status: res.status,
     headers: {
