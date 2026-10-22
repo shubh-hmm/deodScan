@@ -3,6 +3,7 @@
 //   npx tsx worker/src/cli.ts today   (the unfinished current UTC day so far; costs credits, 10 min cooldown)
 //   npx tsx worker/src/cli.ts alerts [--rescan]   (scan stored data for alerts; database only, spends no credits)
 //   npx tsx worker/src/cli.ts telegram-check   (check the bot token; sends nothing)
+//   npx tsx worker/src/cli.ts telegram-test   (one TEST message to everyone subscribed; not an alert)
 //   npx tsx worker/src/cli.ts telegram-users [--revoke <chat_id> | --restore <chat_id>]   (who is allowed in)
 //   npm run sync -- daily        (fetch every completed UTC day not yet synced; never the current day)
 import { closePool, getPool, migrate, seedFromConfig } from '@deod/db';
@@ -61,6 +62,13 @@ try {
     const code = loadEnv().TELEGRAM_ACCESS_CODE;
     log.info({ bot: `@${me.username}`, accessCode: code && code.length >= MIN_ACCESS_CODE_LENGTH ? 'set' : `NOT SET (needs ${MIN_ACCESS_CODE_LENGTH}+ characters): the bot stays off` },
       'Telegram token is valid. Open the bot, press Start and send the access code');
+  } else if (cmd === 'telegram-test') {
+    // Sends one clearly marked TEST message to everyone who is subscribed. It is not an alert: nothing is stored and no alert is created.
+    const api = apiFromEnv();
+    if (!api) throw new Error('TELEGRAM_BOT_TOKEN is not set in backend/.env');
+    const { rows } = await getPool().query(`SELECT chat_id::text AS chat_id FROM telegram_users WHERE status = 'subscribed'`);
+    for (const r of rows) await api.sendMessage(r.chat_id, 'TEST from DEODScan: alert delivery works. This is only a test, no real alert was triggered.');
+    log.info({ recipients: rows.length }, 'test message sent');
   } else if (cmd === 'telegram-users') {
     // Lists the people who started the bot. --revoke <chat_id> turns one away for good (the bot ignores them); --restore <chat_id> undoes it.
     const revoke = arg('revoke'), restore = arg('restore');
@@ -72,7 +80,7 @@ try {
     const r = await syncToday();
     log.info(r, 'today so far fetched; the unfinished day is stored, the daily checkpoint is unchanged');
   } else {
-    console.error('usage: sync alerts [--rescan] | sync telegram-check | sync telegram-users [--revoke <chat_id>] | sync today | sync backfill --from YYYY-MM-DD [--to ...] [--window-days N] [--query name] | sync daily');
+    console.error('usage: sync alerts [--rescan] | sync telegram-test | sync telegram-check | sync telegram-users [--revoke <chat_id>] | sync today | sync backfill --from YYYY-MM-DD [--to ...] [--window-days N] [--query name] | sync daily');
     process.exitCode = 2;
   }
 } catch (err) {

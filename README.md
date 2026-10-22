@@ -223,7 +223,7 @@ Alerts can also reach people on Telegram. Nobody gets in without the access code
 1. In Telegram, message **@BotFather**, send `/newbot`, and copy the **bot token**.
 2. Choose an **access code**: a long secret of at least 8 characters. You give it to the people you want to allow in.
 3. In `backend/.env` (never in git) set `TELEGRAM_BOT_TOKEN=...` and `TELEGRAM_ACCESS_CODE=...`, then restart the backend (`npm run dev`). This also applies migration `005_telegram_bot.sql`. The old `TELEGRAM_CHAT_ID` line is no longer used and can be deleted.
-4. Check the token: `npx tsx worker/src/cli.ts telegram-check` (sends nothing).
+4. Check the token: `npx tsx worker/src/cli.ts telegram-check` (sends nothing). Check delivery: `npx tsx worker/src/cli.ts telegram-test` sends one clearly marked TEST message to everyone who is subscribed (it is not an alert and is not stored).
 
 **What a person does:**
 1. Opens your bot and presses **Start**. The bot asks for the access code.
