@@ -25,16 +25,24 @@ export interface BotContext {
 
 const ASK_ALERTS: InlineKeyboard = { inline_keyboard: [[{ text: 'Yes, send me alerts', callback_data: 'sub:yes' }, { text: 'Not now', callback_data: 'sub:no' }]] };
 
+/** The menu shown under the bot's messages: people tap buttons instead of typing commands. */
+const mainMenu = (subscribed: boolean): InlineKeyboard => ({
+  inline_keyboard: [
+    [{ text: 'Latest alerts', callback_data: 'menu:latest' }, { text: 'Status', callback_data: 'menu:status' }],
+    [subscribed ? { text: 'Turn alerts off', callback_data: 'sub:off' } : { text: 'Turn alerts on', callback_data: 'sub:yes' }],
+  ],
+});
+
 const T = {
   needCode: 'DEODScan alerts is a private bot.\nPlease send your access code to continue.',
   invalid: 'That access code is not valid.',
   paused: 'Too many wrong codes were tried. Please try again later.',
-  askAlerts: 'Access granted. Welcome to DEODScan.\n\nDo you want to receive DEOD alerts here? You will get a message when a large transfer or swap, an unusual exchange flow or activity of a watched wallet is detected. You can stop at any time with /stop.',
-  subscribed: 'Done. You will now get DEOD alerts here.\n\nAlerts cover recorded transactions only (monitored exchange addresses and the PancakeSwap pools) and arrive after each daily sync, so they are not real time.\n\n/latest shows the most recent alerts, /stop turns alerts off.',
-  declined: 'No problem, alerts are off. Send /subscribe whenever you want them.',
-  stopped: 'Alerts are off. Send /subscribe to turn them on again.',
-  help: '/subscribe: receive alerts\n/stop: stop alerts\n/latest: the 5 most recent alerts\n/status: your current setting',
-  unknown: 'I did not understand that. Send /help to see what I can do.',
+  askAlerts: 'Access granted. Welcome to DEODScan.\n\nDo you want to receive DEOD alerts here? You will get a message when a large transfer or swap, an unusual exchange flow or activity of a watched wallet is detected. You can turn them off at any time from the menu.',
+  subscribed: 'Done. You will now get DEOD alerts here.\n\nAlerts cover recorded transactions only (monitored exchange addresses and the PancakeSwap pools) and arrive after each daily sync, so they are not real time.\n\nUse the buttons below any time.',
+  declined: 'No problem, alerts are off. Use the button below whenever you want them.',
+  stopped: 'Alerts are off. Use the button below to turn them on again.',
+  menu: 'What would you like to do?',
+  unknown: 'Please use the buttons below.',
   codeFirst: 'Please send your access code first.',
 };
 
@@ -93,8 +101,18 @@ async function attemptCode(ctx: BotContext, msg: TgMessage, user: UserRow, text:
 
 async function subscribe(ctx: BotContext, chatId: number, user: UserRow) {
   if (user.status !== 'subscribed') await setStatus(ctx, chatId, 'subscribed', ', subscribed_at = now()');
-  return ctx.api.sendMessage(chatId, T.subscribed);
+  return ctx.api.sendMessage(chatId, T.subscribed, mainMenu(true));
 }
+
+/** Sends the 5 most recent alerts, with the menu under the last one. */
+async function sendLatest(ctx: BotContext, chatId: number, subscribed: boolean) {
+  const msgs = await latestAlerts(ctx);
+  if (!msgs.length) return ctx.api.sendMessage(chatId, 'No alerts have been raised yet.', mainMenu(subscribed));
+  const ordered = msgs.reverse();
+  for (const [i, m] of ordered.entries()) await ctx.api.sendMessage(chatId, m, i === ordered.length - 1 ? mainMenu(subscribed) : undefined);
+}
+
+const statusText = (subscribed: boolean) => (subscribed ? 'Alerts are ON for this chat.' : 'Alerts are OFF for this chat.');
 
 async function onMessage(ctx: BotContext, msg: TgMessage) {
   if (msg.chat.type !== 'private') return;                                            // the bot talks to individuals only, never in groups
@@ -109,38 +127,43 @@ async function onMessage(ctx: BotContext, msg: TgMessage) {
     if (!text || cmd === '/start' || cmd === '/help') return ctx.api.sendMessage(chatId, T.needCode);
     return attemptCode(ctx, msg, user, text, now);
   }
+  // Buttons are the normal way to use the bot; the old typed commands still work and lead to the same actions.
+  const on = user.status === 'subscribed';
   switch (cmd) {
-    case '/start':
     case '/subscribe':
-      if (user.status === 'subscribed') return ctx.api.sendMessage(chatId, 'You are already receiving alerts. /stop turns them off.');
+      if (on) return ctx.api.sendMessage(chatId, 'You are already receiving alerts.', mainMenu(true));
       return ctx.api.sendMessage(chatId, T.askAlerts, ASK_ALERTS);
     case '/stop':
-      if (user.status === 'subscribed') await setStatus(ctx, chatId, 'authorized', ', subscribed_at = NULL');
-      return ctx.api.sendMessage(chatId, T.stopped);
+      if (on) await setStatus(ctx, chatId, 'authorized', ', subscribed_at = NULL');
+      return ctx.api.sendMessage(chatId, T.stopped, mainMenu(false));
     case '/status':
-      return ctx.api.sendMessage(chatId, user.status === 'subscribed' ? 'Alerts are ON for this chat. /stop turns them off.' : 'Alerts are OFF for this chat. /subscribe turns them on.');
-    case '/latest': {
-      const msgs = await latestAlerts(ctx);
-      if (!msgs.length) return ctx.api.sendMessage(chatId, 'No alerts have been raised yet.');
-      for (const m of msgs.reverse()) await ctx.api.sendMessage(chatId, m);
-      return;
-    }
-    case '/help':
-      return ctx.api.sendMessage(chatId, T.help);
-    default:
-      return ctx.api.sendMessage(chatId, T.unknown);
+      return ctx.api.sendMessage(chatId, statusText(on), mainMenu(on));
+    case '/latest':
+      return sendLatest(ctx, chatId, on);
+    default:                                                                           // /start, /help, /menu or anything else
+      return ctx.api.sendMessage(chatId, cmd === '/start' || cmd === '/help' || cmd === '/menu' ? T.menu : T.unknown, mainMenu(on));
   }
 }
 
+const CALLBACKS = new Set(['sub:yes', 'sub:no', 'sub:off', 'menu:latest', 'menu:status']);
+
 async function onCallback(ctx: BotContext, cb: TgCallback) {
   const chat = cb.message?.chat;
-  if (!chat || chat.type !== 'private' || (cb.data !== 'sub:yes' && cb.data !== 'sub:no')) return ctx.api.answerCallbackQuery(cb.id).catch(() => {});
+  if (!chat || chat.type !== 'private' || !cb.data || !CALLBACKS.has(cb.data)) return ctx.api.answerCallbackQuery(cb.id).catch(() => {});
   const user = await loadUser(ctx, chat.id, cb.from);
   if (user.status === 'blocked') return;
   if (user.status === 'new') { await ctx.api.answerCallbackQuery(cb.id, T.codeFirst).catch(() => {}); return ctx.api.sendMessage(chat.id, T.needCode); }
   await ctx.api.answerCallbackQuery(cb.id).catch(() => {});
-  if (cb.data === 'sub:yes') return subscribe(ctx, chat.id, user);
-  return ctx.api.sendMessage(chat.id, user.status === 'subscribed' ? 'Alerts stay on. Send /stop to turn them off.' : T.declined);
+  const on = user.status === 'subscribed';
+  switch (cb.data) {
+    case 'sub:yes': return subscribe(ctx, chat.id, user);
+    case 'sub:no': return ctx.api.sendMessage(chat.id, on ? 'Alerts stay on.' : T.declined, mainMenu(on));
+    case 'sub:off':
+      if (on) await setStatus(ctx, chat.id, 'authorized', ', subscribed_at = NULL');
+      return ctx.api.sendMessage(chat.id, T.stopped, mainMenu(false));
+    case 'menu:latest': return sendLatest(ctx, chat.id, on);
+    default: return ctx.api.sendMessage(chat.id, statusText(on), mainMenu(on));      // menu:status
+  }
 }
 
 /** Handles one Telegram update. Never throws for a normal user mistake; Telegram or database failures propagate to the caller. */

@@ -228,7 +228,7 @@ Alerts can also reach people on Telegram. Nobody gets in without the access code
 **What a person does:**
 1. Opens your bot and presses **Start**. The bot asks for the access code.
 2. Sends the code. If it is right, they are let in (the bot also deletes their message with the code) and are asked: **"Do you want to receive DEOD alerts here?"** with buttons *Yes, send me alerts* / *Not now*.
-3. After **Yes**, they receive every new alert (amount, sender, recipient, time, transaction hash, explorer link). `/stop` turns it off, `/subscribe` back on, `/latest` shows the 5 most recent alerts, `/status` shows the setting.
+3. After **Yes**, they receive every new alert (amount, sender, recipient, time, transaction hash, explorer link). Under the bot's messages there is a button menu, so nobody has to type commands: **Latest alerts** (the 5 most recent), **Status**, and **Turn alerts off / Turn alerts on**. The old typed commands (`/latest`, `/status`, `/stop`, `/subscribe`) still work.
 
 **Rules:**
 - Five wrong codes lock that chat for 60 minutes; 30 wrong codes from all chats within an hour pause code checking for everyone. The bot answers private chats only and ignores groups.

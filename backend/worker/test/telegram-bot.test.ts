@@ -159,7 +159,63 @@ describe.skipIf(!admin)('telegram bot conversation', () => {
     expect(last().markup!.inline_keyboard[0]![0]!.callback_data).toBe('sub:yes');   // asks again, does not switch on by itself
     expect((await user(8)).status).toBe('authorized');
     await say(8, '/nonsense');
-    expect(last().text).toContain('/help');
+    expect(last().text).toContain('use the buttons');
+  });
+
+  const labels = (o: Out) => o.markup!.inline_keyboard.flat().map((b) => b.text);
+
+  it('offers buttons instead of commands: a menu with Latest alerts, Status and the alerts switch', async () => {
+    clear();
+    await say(11, CODE); await press(11, 'sub:yes');
+    expect(labels(last())).toEqual(['Latest alerts', 'Status', 'Turn alerts off']);       // right after saying yes
+    await say(11, '/start');
+    expect(last().text).toBe('What would you like to do?');
+    expect(labels(last())).toEqual(['Latest alerts', 'Status', 'Turn alerts off']);
+    await say(11, 'hello');                                                              // free text is answered with the menu, not an error
+    expect(last().text).toContain('use the buttons');
+    expect(last().markup).toBeDefined();
+  });
+
+  it('the Status button reports the current setting and the menu follows it', async () => {
+    clear();
+    await say(12, CODE); await press(12, 'sub:yes');
+    await press(12, 'menu:status');
+    expect(last().text).toBe('Alerts are ON for this chat.');
+    await press(12, 'sub:off');
+    expect(last().text).toContain('Alerts are off');
+    expect(labels(last())).toEqual(['Latest alerts', 'Status', 'Turn alerts on']);
+    expect((await user(12))).toMatchObject({ status: 'authorized', subscribed_at: null });
+    await press(12, 'menu:status');
+    expect(last().text).toBe('Alerts are OFF for this chat.');
+    await press(12, 'sub:yes');                                                          // the toggle turns them back on
+    expect((await user(12)).status).toBe('subscribed');
+  });
+
+  it('the Latest alerts button shows recent alerts with the menu under the last one', async () => {
+    clear();
+    await pool.query(
+      `INSERT INTO alerts (dedup_key, rule_code, severity, source, occurred_at, exchange, direction, amount, sender, recipient, tx_hash, evt_index, block_number)
+       VALUES ('x:menu', 'large_transfer', 'high', 'exchange_flow', now(), 'mexc', 'IN', 650000, '0x1ffbdf86dcd09980ee8e2e89a301c5e15f2d49c7', '0x4982085c9e2f89f2ecb8131eca71afad896e89cb', $1, 1, 6)`, [`0x${'ef'.repeat(32)}`]);
+    await say(13, CODE); await press(13, 'sub:yes');
+    out.length = 0;
+    await press(13, 'menu:latest');
+    expect(out.length).toBeGreaterThanOrEqual(1);
+    expect(out.some((o) => o.text.includes('Amount: 650,000 DEOD'))).toBe(true);
+    expect(out.slice(0, -1).every((o) => o.markup === undefined)).toBe(true);           // only the last message carries the menu
+    expect(labels(last())).toEqual(['Latest alerts', 'Status', 'Turn alerts off']);
+  });
+
+  it('menu buttons do nothing for someone who has not entered the code, and unknown buttons are ignored', async () => {
+    clear();
+    await say(14, '/start');
+    out.length = 0;
+    await press(14, 'menu:latest');
+    expect(out.map((o) => o.text)).toEqual(['DEODScan alerts is a private bot.\nPlease send your access code to continue.']);
+    expect((await user(14)).status).toBe('new');
+    await say(15, CODE);
+    out.length = 0;
+    await press(15, 'something:else');
+    expect(out).toHaveLength(0);
   });
 
   it('shows the latest alerts only to people who were let in', async () => {
@@ -172,9 +228,10 @@ describe.skipIf(!admin)('telegram bot conversation', () => {
     await say(9, CODE);
     out.length = 0;
     await say(9, '/latest');
-    expect(out).toHaveLength(1);
-    expect(out[0]!.text).toContain('Amount: 600,000 DEOD');
-    expect(out[0]!.text).toContain('https://bscscan.com/tx/0x' + 'cd'.repeat(32));
+    expect(out.length).toBeGreaterThanOrEqual(1);
+    const mine = out.find((o) => o.text.includes('Amount: 600,000 DEOD'));
+    expect(mine).toBeDefined();
+    expect(mine!.text).toContain('https://bscscan.com/tx/0x' + 'cd'.repeat(32));
   });
 
   it('ignores groups completely', async () => {
