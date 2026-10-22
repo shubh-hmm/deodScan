@@ -215,17 +215,27 @@ The **Alerts** page lists automatic alerts and manages a watchlist of wallets. D
 - **Limits:** monitoring covers only recorded transactions (transfers to/from the monitored exchange addresses and swaps on the monitored pools). It cannot see other wallet transfers, and data arrives once per finished day or when you press Update today, so alerts are not real time. A wallet added to the watchlist alerts only on activity recorded afterwards.
 - The first start after this update applies database migration `003_alerts.sql` automatically (new tables only; nothing existing is changed).
 
-### Telegram notifications (free, optional)
+### Telegram alerts with an access code (free, optional)
 
-Every new alert can also be sent to your Telegram. Detection never depends on it: with no bot configured, or if Telegram is down, alerts are still stored and shown on the Alerts page (and retried later).
+Alerts can also reach people on Telegram. Nobody gets in without the access code you choose, and nobody gets alerts without saying yes. Detection never depends on Telegram: with no bot configured, or if Telegram is down, alerts are still stored and shown on the Alerts page.
 
-1. In Telegram, message **@BotFather**, send `/newbot` and copy the **bot token**.
-2. Open your new bot, press **Start** and send it any message.
-3. Open `https://api.telegram.org/bot<TOKEN>/getUpdates` in a browser (replace `<TOKEN>`). Find `"chat":{"id":123456789` and copy that **number** (a username such as `bimalpradhan` does not work).
-4. Put both in `backend/.env` (never in git): `TELEGRAM_BOT_TOKEN=...` and `TELEGRAM_CHAT_ID=123456789`, then restart the backend (this also applies database migration `004_notifications.sql`).
-5. Check it: `npx tsx worker/src/cli.ts notify-test` in the backend folder sends one clearly marked test message.
+**Set up (once):**
+1. In Telegram, message **@BotFather**, send `/newbot`, and copy the **bot token**.
+2. Choose an **access code**: a long secret of at least 8 characters. You give it to the people you want to allow in.
+3. In `backend/.env` (never in git) set `TELEGRAM_BOT_TOKEN=...` and `TELEGRAM_ACCESS_CODE=...`, then restart the backend (`npm run dev`). This also applies migration `005_telegram_bot.sql`. The old `TELEGRAM_CHAT_ID` line is no longer used and can be deleted.
+4. Check the token: `npx tsx worker/src/cli.ts telegram-check` (sends nothing).
 
-Each message has the amount, sender, recipient, time, transaction hash and explorer link. An alert is sent once; at most 20 messages go out per run (a burst continues on the next run); only alerts created after Telegram was first switched on are sent, so enabling it never floods you with old alerts.
+**What a person does:**
+1. Opens your bot and presses **Start**. The bot asks for the access code.
+2. Sends the code. If it is right, they are let in (the bot also deletes their message with the code) and are asked: **"Do you want to receive DEOD alerts here?"** with buttons *Yes, send me alerts* / *Not now*.
+3. After **Yes**, they receive every new alert (amount, sender, recipient, time, transaction hash, explorer link). `/stop` turns it off, `/subscribe` back on, `/latest` shows the 5 most recent alerts, `/status` shows the setting.
+
+**Rules:**
+- Five wrong codes lock that chat for 60 minutes; 30 wrong codes from all chats within an hour pause code checking for everyone. The bot answers private chats only and ignores groups.
+- A person receives only alerts created after they said yes, each alert once. At most 20 messages per person per run (a burst continues on the next run). A failed delivery is retried up to 5 times. If someone blocks the bot they are moved back to "allowed, alerts off".
+- See who is in: `npx tsx worker/src/cli.ts telegram-users`. Turn someone away for good: `--revoke <chat_id>` (the bot then ignores them); `--restore <chat_id>` undoes it. Changing the access code does not remove people who are already in; revoke them.
+- The bot reads its messages inside the backend API process (it is on whenever `npm run dev` runs and the two settings are present). Run only one copy of the backend per bot, or Telegram reports a conflict.
+- Alerts are sent after each sync, "Update today" and `npx tsx worker/src/cli.ts alerts`, so they are not real time.
 
 ## Sign-in (admin only)
 

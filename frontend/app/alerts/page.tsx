@@ -27,12 +27,13 @@ export default async function Alerts({ searchParams }: { searchParams: SearchPar
   const m = await meta();
   const labels = labelMap(m);
 
-  let data: any, rules: any, watch: any;
+  let data: any, rules: any, watch: any, tg: any;
   try {
-    [data, rules, watch] = await Promise.all([
+    [data, rules, watch, tg] = await Promise.all([
       api('/api/alerts', { rule: p.rule, exchange: p.exchange, wallet: p.wallet, limit: String(LIMIT), offset: p.offset }),
       api('/api/alert-rules'),
       api('/api/watchlist'),
+      api('/api/telegram/status').catch(() => null),
     ]);
   } catch {
     return (
@@ -66,6 +67,22 @@ export default async function Alerts({ searchParams }: { searchParams: SearchPar
         Alerts are created after each sync (or Update today). To scan the stored data now, with no Dune credits, run{' '}
         <span className="font-mono">npx tsx worker/src/cli.ts alerts</span> in the backend folder. Thresholds are in <span className="font-mono">backend/config/alerts.yaml</span>.
       </p>
+
+      {tg ? (
+        <div className="mt-4">
+          <Note>
+            {tg.configured ? (
+              <>
+                <strong>Telegram alerts are on.</strong>{' '}
+                {tg.botUsername ? <>Open <a className="link" href={`https://t.me/${tg.botUsername}`} target="_blank" rel="noreferrer">@{tg.botUsername}</a>, press Start, send the access code you were given, then choose “Yes, send me alerts”.</> : 'Open the bot in Telegram, press Start and send the access code.'}
+                {' '}{fmtInt(tg.allowed)} {tg.allowed === 1 ? 'person has' : 'people have'} been let in and {fmtInt(tg.subscribed)} receive{tg.subscribed === 1 ? 's' : ''} alerts.
+              </>
+            ) : (
+              <><strong>Telegram alerts are off.</strong> To switch them on, put TELEGRAM_BOT_TOKEN and TELEGRAM_ACCESS_CODE in <span className="font-mono">backend/.env</span> and restart the backend. People then send the access code to your bot to be let in.</>
+            )}
+          </Note>
+        </div>
+      ) : null}
 
       <div className="mt-6"><Card title={`Watched wallets (${watch.rows.length} of ${watch.max})`}>
         <WatchForm />

@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { loadConfig, loadEnv } from '@deod/config';
 import { closePool, getPool, migrate, refreshWalletSummary, deriveExchangeFlows, seedFromConfig } from '@deod/db';
 import * as A from '@deod/analytics';
-import { syncAllCompletedDays, syncToday, todayCooldownSeconds, SyncBusyError, SyncCooldownError } from '@deod/worker';
+import { syncAllCompletedDays, syncToday, todayCooldownSeconds, startBotFromEnv, apiFromEnv, MIN_ACCESS_CODE_LENGTH, SyncBusyError, SyncCooldownError } from '@deod/worker';
 import { toCsv } from './csv.js';
 import { getPrice } from './price.js';
 
@@ -195,6 +195,18 @@ app.get('/api/sync/status', async () => A.syncStatus(db));
 app.get('/api/alerts', async (req) => A.listAlerts(db, parse(A.AlertFilter.passthrough(), req.query), cfg.chain.explorer_tx_url));
 app.get('/api/alert-rules', async () => A.alertRules(db));
 app.get('/api/watchlist', async () => A.listWatched(db));
+
+// Telegram bot status for the Alerts page (never returns the token or the access code).
+let botName: { at: number; name: string | null } | null = null;
+app.get('/api/telegram/status', async () => {
+  const code = env.TELEGRAM_ACCESS_CODE;
+  const configured = !!env.TELEGRAM_BOT_TOKEN && !!code && code.length >= MIN_ACCESS_CODE_LENGTH;
+  if (configured && (!botName || Date.now() - botName.at > 600_000)) {
+    botName = { at: Date.now(), name: await apiFromEnv()?.getMe().then((m) => m.username, () => null) ?? null };
+  }
+  const { rows: [c] } = await db.query(`SELECT count(*) FILTER (WHERE status IN ('authorized', 'subscribed'))::int AS allowed, count(*) FILTER (WHERE status = 'subscribed')::int AS subscribed FROM telegram_users`);
+  return { configured, botUsername: configured ? botName?.name ?? null : null, allowed: c.allowed as number, subscribed: c.subscribed as number };
+});
 app.post('/api/watchlist', async (req, reply) => {
   const row = await A.upsertWatched(db, parse(A.WatchInput, req.body));
   if (!row) return reply.code(409).send({ error: `The watchlist is full (${A.MAX_WATCHED} wallets). Remove one first.` });
@@ -301,6 +313,8 @@ app.register(async (admin) => {
 await migrate(db);
 await seedFromConfig(db);
 await app.listen({ port: env.API_PORT, host: process.env.API_HOST ?? '127.0.0.1' });
+// The Telegram bot (people send the access code, then opt in to alerts) is read in the background by this process. Off unless configured.
+const bot = startBotFromEnv(db, app.log);
 
 // Graceful shutdown: stop accepting requests, let running ones finish, close the database pool. Triggered by Ctrl+C / SIGTERM /
 // Ctrl+Break, or by a 'shutdown' message from `npm run dev` (signals do not work between processes on Windows, messages do).
@@ -309,6 +323,7 @@ async function shutdown(reason: string) {
   if (closing) return;
   closing = true;
   app.log.info({ reason }, 'shutting down');
+  try { await bot?.stop(); } catch (err) { app.log.error({ err }, 'error while stopping the telegram bot'); }
   try { await app.close(); } catch (err) { app.log.error({ err }, 'error while closing the server'); }
   await closePool();
   process.exit(0);
