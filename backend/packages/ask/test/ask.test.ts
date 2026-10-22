@@ -175,6 +175,32 @@ describe.skipIf(!admin)('asking questions', () => {
     expect(c.exchanges.find((e: any) => e.slug === 'mexc')).toMatchObject({ transfers: 2 });
   });
 
+  it('gives the model the last few exchanges so a follow-up like "show me the addresses" makes sense', async () => {
+    const m = scripted([say('I will look that up again.')]);
+    const history = [1, 2, 3, 4, 5].map((i) => ({ question: `Question ${i}?`, answer: `Answer ${i}.` }));
+    await runAsk(pool, m.llm, 'show me addresses not transaction hash', { now: NOW, history });
+    const shown = m.seen[0]!;
+    expect(shown.map((x) => x.role)).toEqual(['system', 'user', 'assistant', 'user', 'assistant', 'user', 'assistant', 'user']);   // only the last 3 pairs, then the new question
+    expect((shown[1] as any).content).toBe('Question 3?');
+    expect((shown[6] as any).content).toBe('Answer 5.');
+    expect((shown.at(-1) as any).content).toBe('show me addresses not transaction hash');
+  });
+
+  it('does not accept figures that only appear in an earlier answer: they must be looked up again', async () => {
+    const m = scripted([say('As before, 94,355.15 DEOD moved.'), say('I need to look that up again.')]);
+    const r = await runAsk(pool, m.llm, 'And who traded it?', { now: NOW, history: [{ question: 'Largest swap?', answer: 'The largest swap was 94,355.15 DEOD.' }] });
+    expect(r.answer).toBe('I need to look that up again.');                         // the first reply was sent back for correction
+    expect(m.calls).toBe(2);
+    expect((m.seen[1]!.at(-1) as any).content).toContain('94,355.15');
+  });
+
+  it('keeps earlier answers short enough, whatever the browser sends', async () => {
+    const m = scripted([say('Ok.')]);
+    await runAsk(pool, m.llm, 'Next?', { now: NOW, history: [{ question: 'q'.repeat(5000), answer: 'a'.repeat(9000) }] });
+    expect(((m.seen[0]![1] as any).content as string).length).toBe(MAX_QUESTION_CHARS);
+    expect(((m.seen[0]![2] as any).content as string).length).toBe(1500);
+  });
+
   it('stops a model that keeps calling tools forever', async () => {
     const m = scripted([toolReply(call('x', 'get_data_coverage', {}))]);
     await expect(runAsk(pool, m.llm, 'Loop?', { now: NOW })).rejects.toThrow(/too many steps/);

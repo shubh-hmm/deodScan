@@ -5,15 +5,39 @@ import { createPortal } from 'react-dom';
 import { Icons } from '@/components/icons';
 
 interface ToolRecord { tool: string; args: Record<string, unknown>; result: any; error?: string }
-interface Answer { answer: string; verified: boolean; unverified: string[]; data: ToolRecord[]; model: string; remainingToday: number }
+interface Answer { answer: string; verified: boolean; unverified: string[]; data: ToolRecord[]; model: string; remainingToday: number; rules?: boolean }
 interface Status { enabled: boolean; reason: string | null; model: string | null; maxQuestionChars: number; usage: { remaining: number; limit: number } | null }
 type Turn = { id: number; question: string; state: 'loading' | 'done' | 'error'; answer?: Answer; error?: string };
 
-const SUGGESTIONS = [
-  'How much did exchanges receive and pay out in the last 7 days?',
-  'Which exchange had the largest withdrawal this month?',
-  'Show the 5 largest PancakeSwap swaps this week.',
-  'What does the data not cover yet?',
+/** Ready-made questions. "Instant" ones are answered from the dashboard summary (fixed rules, no AI, no cost) and work even with no OpenAI key. */
+const INSTANT: { label: string; range: string }[] = [
+  { label: 'Summary of the last 24 hours', range: '24h' },
+  { label: 'Summary of the last 7 days', range: '7d' },
+  { label: 'Summary of the last 30 days', range: '30d' },
+  { label: 'Summary of all recorded history', range: 'all' },
+];
+const FAQ: { group: string; questions: string[] }[] = [
+  { group: 'Exchanges', questions: [
+    'How much did exchanges receive and pay out in the last 7 days?',
+    'Which exchange received the most DEOD in the last 7 days?',
+    'Which exchange had the largest withdrawal this month?',
+    'Show the 5 largest deposits to exchanges this week, with wallet addresses.',
+    'Who are the top depositors to MEXC this month?',
+  ] },
+  { group: 'PancakeSwap', questions: [
+    'Show the 5 largest PancakeSwap swaps this week, with wallet addresses.',
+    'Were there more buys or sells on PancakeSwap in the last 7 days?',
+    'What was the last recorded DEOD trade price?',
+  ] },
+  { group: 'Wallets and alerts', questions: [
+    'Who are the most active wallets this month?',
+    'Which alerts were raised this week?',
+    'Which wallets withdrew the most from Toobit this month?',
+  ] },
+  { group: 'About the data', questions: [
+    'What does the data not cover yet?',
+    'How far does the data go for each exchange?',
+  ] },
 ];
 
 const short = (v: string) => (/^0x[0-9a-fA-F]{40,64}$/.test(v) ? `${v.slice(0, 8)}…${v.slice(-6)}` : v);
@@ -82,7 +106,9 @@ export function AskPanel() {
     setText('');
     setTurns((t) => [...t, { id, question, state: 'loading' }]);
     try {
-      const res = await fetch('/api-ask', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ question }) });
+      // The last few answered questions go along as context, so a follow-up ("show me the addresses") knows what it refers to.
+      const history = turns.filter((t) => t.state === 'done' && t.answer?.verified).slice(-3).map((t) => ({ question: t.question, answer: t.answer!.answer }));
+      const res = await fetch('/api-ask', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ question, history }) });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? `Something went wrong (${res.status}).`);
       setTurns((t) => t.map((x) => (x.id === id ? { ...x, state: 'done', answer: body as Answer } : x)));
@@ -90,7 +116,39 @@ export function AskPanel() {
     } catch (e) {
       setTurns((t) => t.map((x) => (x.id === id ? { ...x, state: 'error', error: e instanceof Error ? e.message : 'Something went wrong.' } : x)));
     }
+  }, [busy, turns]);
+
+  /** The instant questions: the dashboard's own rule-written summary for a period. No AI is called and no allowance is used. */
+  const instant = useCallback(async (label: string, range: string) => {
+    if (busy) return;
+    const id = Date.now();
+    setTurns((t) => [...t, { id, question: label, state: 'loading' }]);
+    try {
+      const res = await fetch(`/api-ask/summary?range=${range}`, { cache: 'no-store' });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || typeof body.text !== 'string') throw new Error(body.error ?? 'The summary could not be loaded.');
+      setTurns((t) => t.map((x) => (x.id === id ? { ...x, state: 'done', answer: { answer: body.text, verified: true, unverified: [], data: [], model: 'rules', remainingToday: 0, rules: true } } : x)));
+    } catch (e) {
+      setTurns((t) => t.map((x) => (x.id === id ? { ...x, state: 'error', error: e instanceof Error ? e.message : 'The summary could not be loaded.' } : x)));
+    }
   }, [busy]);
+
+  const chip = 'block w-full rounded-lg border border-line bg-surface px-3 py-2 text-left text-[13px] text-ink-2 hover:border-line-strong hover:text-ink disabled:cursor-not-allowed disabled:opacity-50';
+  const aiOff = !!status && !status.enabled;
+  const questionList = (
+    <div className="space-y-3">
+      <div>
+        <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">Instant (no AI needed)</h3>
+        <div className="space-y-1.5">{INSTANT.map((q) => <button key={q.range} type="button" disabled={busy} onClick={() => void instant(q.label, q.range)} className={chip}>{q.label}</button>)}</div>
+      </div>
+      {FAQ.map((g) => (
+        <div key={g.group}>
+          <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">{g.group}</h3>
+          <div className="space-y-1.5">{g.questions.map((q) => <button key={q} type="button" disabled={aiOff || busy} onClick={() => void send(q)} className={chip}>{q}</button>)}</div>
+        </div>
+      ))}
+    </div>
+  );
 
   return (
     <>
@@ -108,30 +166,29 @@ export function AskPanel() {
             </header>
 
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 text-sm">
-              {status && !status.enabled ? (
+              {aiOff && (
                 <div className="rounded-xl border border-line bg-surface p-4">
                   <p className="font-medium">The AI assistant is not switched on.</p>
-                  <p className="mt-1.5 text-ink-2">{status.reason}</p>
+                  <p className="mt-1.5 text-ink-2">{status!.reason} The instant summaries below still work.</p>
                 </div>
-              ) : !turns.length ? (
+              )}
+              {!turns.length && (
                 <div>
-                  <p className="text-ink-2">Ask about DEOD flows, exchanges, swaps, wallets or alerts. Every figure in an answer is looked up in your data and checked before it is shown.</p>
-                  <div className="mt-3 space-y-2">
-                    {SUGGESTIONS.map((s) => <button key={s} type="button" disabled={!status?.enabled} onClick={() => void send(s)} className="block w-full rounded-lg border border-line bg-surface px-3 py-2 text-left text-ink-2 hover:border-line-strong hover:text-ink disabled:opacity-50">{s}</button>)}
-                  </div>
+                  {!aiOff && <p className="mb-3 text-ink-2">Tap a common question, or type your own. Every figure in an answer is looked up in your data and checked before it is shown.</p>}
+                  {questionList}
                 </div>
-              ) : null}
+              )}
 
               {turns.map((t) => (
                 <div key={t.id} className="space-y-2">
-                  <div className="ml-8 rounded-xl bg-accent/15 px-3 py-2 text-ink">{t.question}</div>
+                  <div className="ml-8 break-words rounded-xl bg-accent/15 px-3 py-2 text-ink [overflow-wrap:anywhere]">{t.question}</div>
                   {t.state === 'loading' && <p className="flex items-center gap-2 text-muted"><span className="spinner" aria-hidden="true" />Looking up your data…</p>}
                   {t.state === 'error' && <p role="alert" className="rounded-xl border border-line bg-surface px-3 py-2 text-[#ff9b73]">{t.error}</p>}
                   {t.state === 'done' && t.answer && (
                     <div className="rounded-xl border border-line bg-surface px-3 py-2.5">
-                      <p className="whitespace-pre-wrap leading-relaxed text-ink">{t.answer.answer}</p>
+                      <p className="whitespace-pre-wrap break-words leading-relaxed text-ink [overflow-wrap:anywhere]">{t.answer.answer}</p>
                       <p className={`mt-2 text-[11px] ${t.answer.verified ? 'text-muted' : 'text-warning'}`}>
-                        {t.answer.verified ? '✓ Every figure was checked against your data.' : `⚠ Not shown: ${t.answer.unverified.join(', ')} could not be matched to your data.`}
+                        {t.answer.rules ? '✓ Written by fixed rules from your data (no AI).' : t.answer.verified ? '✓ Every figure was checked against your data.' : `⚠ Not shown: ${t.answer.unverified.join(', ')} could not be matched to your data.`}
                       </p>
                       {t.answer.data.length > 0 && (
                         <details className="mt-2">
@@ -147,6 +204,12 @@ export function AskPanel() {
             </div>
 
             <footer className="border-t border-line p-3">
+              {turns.length > 0 && (
+                <details className="group mb-2.5">
+                  <summary className="cursor-pointer text-xs text-ink-2 hover:text-ink">Common questions</summary>
+                  <div className="mt-2 max-h-56 overflow-y-auto pr-1">{questionList}</div>
+                </details>
+              )}
               <form onSubmit={(e) => { e.preventDefault(); void send(text); }} className="flex items-end gap-2">
                 <textarea
                   ref={box} value={text} onChange={(e) => setText(e.target.value)} rows={2} maxLength={status?.maxQuestionChars ?? 500}

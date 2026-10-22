@@ -18,9 +18,17 @@ export async function GET() {
 
 export async function POST(req: Request) {
   let question = '';
+  let history: { question: string; answer: string }[] = [];
   try {
-    const body = (await req.json()) as { question?: unknown };
+    const body = (await req.json()) as { question?: unknown; history?: unknown };
     question = typeof body.question === 'string' ? body.question : '';
+    // Only well-formed earlier exchanges are passed on (the backend limits their number and size again).
+    if (Array.isArray(body.history)) {
+      history = body.history.flatMap((h: unknown) => {
+        const t = h as { question?: unknown; answer?: unknown };
+        return typeof t?.question === 'string' && typeof t?.answer === 'string' ? [{ question: t.question, answer: t.answer }] : [];
+      }).slice(-3);
+    }
   } catch {
     return Response.json({ error: 'Please type a question.' }, { status: 400, headers });
   }
@@ -30,7 +38,7 @@ export async function POST(req: Request) {
     const res = await fetch(`${API_BASE}/api/ask`, {
       method: 'POST', cache: 'no-store', signal: AbortSignal.timeout(150_000),
       headers: { ...apiHeaders(), 'content-type': 'application/json' },
-      body: JSON.stringify({ question, ...(defaultRange ? { defaultRange } : {}) }),
+      body: JSON.stringify({ question, ...(defaultRange ? { defaultRange } : {}), ...(history.length ? { history } : {}) }),
     });
     return new Response(res.body, { status: res.status, headers });
   } catch {

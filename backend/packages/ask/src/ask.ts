@@ -37,7 +37,8 @@ How you work:
 - Quote figures exactly as the tools return them (you may shorten with K, M or B and round, e.g. 1,270,524.83 can be written 1.27M). NEVER add, subtract, multiply, divide, average or compute percentages yourself, and never invent a number: a figure that does not appear in the tool results will be rejected. If a total is needed and no tool returns it, say so, or call a tool that returns it (get_overview and get_dashboard_summary already include totals, net flow and changes against the previous period).
 - Terms: an exchange deposit (IN) means a wallet sent DEOD to the exchange; a withdrawal (OUT) means the exchange sent DEOD to a wallet; net = deposits minus withdrawals. Amounts are in DEOD unless marked USD. All times are UTC.
 - Completeness: data is synced once per finished UTC day and only covers transfers with the monitored exchange addresses and swaps on the monitored pools. When the question is about all-time totals, "latest" or "today", or an exchange that may be new, call get_data_coverage and tell the user about any gap (data not yet synced, or history that starts later for some exchanges).
-- When you cite a specific transfer or swap, give its transaction hash.
+- When you list transfers or swaps, show for each one: the amount, the direction or side (deposit/withdrawal, buy/sell), the time, the wallet address (full, 0x...; for a swap that is the "trader") and the transaction hash (full). If the user asks for something different, such as only addresses, give exactly that from the data you already have or fetch it again; the tool results contain the wallet addresses.
+- Earlier messages in this conversation are context only (for follow-ups such as "show me the addresses" or "and last month?"). Do not reuse figures from earlier answers: look them up again with the tools.
 - Never describe a wallet as a whale, bot, insider, market maker or any other kind of actor: you only know amounts and counterparties. Give no price predictions and no investment advice.
 - If the question is not about DEOD data on this dashboard, say briefly that you can only answer questions about the DEOD data shown here.
 - Keep answers short and plain: a few sentences or a short list.`;
@@ -62,7 +63,12 @@ async function runTool(db: pg.Pool, now: Date, name: string, rawArgs: string): P
   }
 }
 
-export interface AskOptions { now?: Date; defaultRange?: string; signal?: AbortSignal }
+/** An earlier question and its answer, so follow-ups ("show me the addresses") make sense. Context only: its figures are NOT accepted as verified. */
+export interface Turn { question: string; answer: string }
+export const MAX_HISTORY_TURNS = 3;
+const MAX_HISTORY_ANSWER_CHARS = 1500;
+
+export interface AskOptions { now?: Date; defaultRange?: string; signal?: AbortSignal; history?: Turn[] }
 
 export async function runAsk(db: pg.Pool, llm: LlmClient, question: string, opts: AskOptions = {}): Promise<AskResult> {
   const now = opts.now ?? new Date();
@@ -71,7 +77,11 @@ export async function runAsk(db: pg.Pool, llm: LlmClient, question: string, opts
   if (q.length > MAX_QUESTION_CHARS) throw new LlmError(`Please keep the question under ${MAX_QUESTION_CHARS} characters.`, 'other');
 
   const tools = toolDefs();
-  const messages: Msg[] = [{ role: 'system', content: systemPrompt(now, opts.defaultRange ?? '7d') }, { role: 'user', content: q }];
+  const earlier: Msg[] = (opts.history ?? []).slice(-MAX_HISTORY_TURNS).flatMap((t): Msg[] => [
+    { role: 'user', content: t.question.slice(0, MAX_QUESTION_CHARS) },
+    { role: 'assistant', content: t.answer.slice(0, MAX_HISTORY_ANSWER_CHARS) },
+  ]);
+  const messages: Msg[] = [{ role: 'system', content: systemPrompt(now, opts.defaultRange ?? '7d') }, ...earlier, { role: 'user', content: q }];
   const records: ToolRecord[] = [];
   const usage = { inputTokens: 0, outputTokens: 0, modelCalls: 0 };
   let corrections = 0;

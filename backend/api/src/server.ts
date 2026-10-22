@@ -108,13 +108,18 @@ app.get('/api/summary', async (req) => A.summarize(db, windowOf(req.query)));
 // "Ask DEODScan AI": the model only picks read-only queries and words the answer; every figure is checked against the data before it is shown.
 // Off (and harmless) until OPENAI_API_KEY is set in backend/.env. The browser never sees the key; the dashboard reaches these routes through its signed-in proxy.
 const ask = createAsk(db);
-const AskBody = z.object({ question: z.string().max(2000), defaultRange: z.enum(['1h', '6h', '24h', '7d', '30d', 'all']).optional() });
+const AskBody = z.object({
+  question: z.string().max(2000),
+  defaultRange: z.enum(['1h', '6h', '24h', '7d', '30d', 'all']).optional(),
+  // The last few exchanges of this conversation, so a follow-up such as "show me the addresses" has something to refer to.
+  history: z.array(z.object({ question: z.string().max(500), answer: z.string().max(3000) })).max(3).optional(),
+});
 const ASK_STATUS: Record<LlmError['kind'], number> = { auth: 503, quota: 429, rate_limit: 429, model: 502, timeout: 504, other: 400 };
 app.get('/api/ask/status', async () => ask.status());
 app.post('/api/ask', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply) => {
   const body = parse(AskBody, req.body);
   try {
-    return await ask.ask(body.question, { defaultRange: body.defaultRange });
+    return await ask.ask(body.question, { defaultRange: body.defaultRange, history: body.history });
   } catch (e) {
     if (e instanceof LlmError) return reply.code(ASK_STATUS[e.kind]).send({ error: e.message, kind: e.kind });
     throw e;

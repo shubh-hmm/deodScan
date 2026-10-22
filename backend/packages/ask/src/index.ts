@@ -3,7 +3,7 @@
 import type pg from 'pg';
 import { loadEnv } from '@deod/config';
 import { LlmError, openAiClient, type LlmClient } from './llm.js';
-import { MAX_QUESTION_CHARS, runAsk, type AskResult } from './ask.js';
+import { MAX_QUESTION_CHARS, runAsk, type AskResult, type Turn } from './ask.js';
 import { recordUsage, refundQuestion, reserveQuestion, usageToday, type Usage } from './limits.js';
 
 export * from './ask.js';
@@ -16,7 +16,7 @@ export interface AskStatus { enabled: boolean; reason: string | null; model: str
 
 export interface AskService {
   status(): Promise<AskStatus>;
-  ask(question: string, opts?: { defaultRange?: string; signal?: AbortSignal }): Promise<AskResult & { remainingToday: number }>;
+  ask(question: string, opts?: { defaultRange?: string; signal?: AbortSignal; history?: Turn[] }): Promise<AskResult & { remainingToday: number }>;
 }
 
 /** `llm` can be passed in (tests); otherwise the OpenAI client is built from backend/.env, or the service reports that it is off. */
