@@ -152,8 +152,12 @@ export function AskPanel() {
 
   return (
     <>
-      <button type="button" className="chip cursor-pointer !border-accent/40 text-ink hover:!border-accent" onClick={() => setOpen(true)} title="Ask questions about the DEOD data in plain language">
-        <span className="text-accent">{Icons.sparkle}</span><span>Ask AI</span>
+      {/* Pink-to-violet gradient (the logo's colours): clearly different from the plain violet buttons, so the assistant is easy to spot. */}
+      <button
+        type="button" onClick={() => setOpen(true)} title="Ask questions about the DEOD data in plain language"
+        className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-white/20 bg-gradient-to-r from-[#e155d6] to-[#7c5cf0] px-3.5 py-1.5 text-xs font-semibold text-white shadow-[0_0_16px_rgba(225,85,214,0.35)] transition hover:brightness-110 active:translate-y-px"
+      >
+        <span aria-hidden="true">{Icons.sparkle}</span><span>Ask AI</span>
       </button>
 
       {/* Drawn on <body>, not inside the top bar: the bar's blur effect would make "fixed" mean "inside the bar" and squeeze the panel. */}
