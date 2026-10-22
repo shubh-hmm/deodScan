@@ -7,6 +7,9 @@ import {
   recordRejections, refreshWalletSummary,
 } from '@deod/db';
 
+import { scanAlerts } from './alerts/scan.js';
+export { scanAlerts } from './alerts/scan.js';
+
 export const log = pino({ level: process.env.LOG_LEVEL ?? 'info', base: { svc: 'worker' } });
 
 export type QueryName = 'exchange_transfers' | 'pancakeswap_swaps';
@@ -137,6 +140,13 @@ async function postProcess() {
   const flows = await deriveExchangeFlows();
   await refreshWalletSummary();
   log.info({ newExchangeFlows: flows }, 'derived exchange flows and refreshed wallet summary');
+  // Alerts read only what is now in the database (no Dune, no network). A failure here must never fail or undo the sync.
+  try {
+    const a = await scanAlerts();
+    log.info({ ...a }, 'alert scan complete');
+  } catch (err) {
+    log.error({ err: err instanceof Error ? err.message : String(err) }, 'alert scan failed; the sync itself is unaffected');
+  }
 }
 
 /**

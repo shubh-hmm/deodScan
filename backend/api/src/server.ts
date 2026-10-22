@@ -191,6 +191,20 @@ app.get('/api/search', async (req) => {
 
 app.get('/api/sync/status', async () => A.syncStatus(db));
 
+// Alerts and wallet monitoring. Alerts are created by the worker's scan of stored data; these routes only read them and manage the watchlist.
+app.get('/api/alerts', async (req) => A.listAlerts(db, parse(A.AlertFilter.passthrough(), req.query), cfg.chain.explorer_tx_url));
+app.get('/api/alert-rules', async () => A.alertRules(db));
+app.get('/api/watchlist', async () => A.listWatched(db));
+app.post('/api/watchlist', async (req, reply) => {
+  const row = await A.upsertWatched(db, parse(A.WatchInput, req.body));
+  if (!row) return reply.code(409).send({ error: `The watchlist is full (${A.MAX_WATCHED} wallets). Remove one first.` });
+  return { ok: true, wallet: row, limitation: A.WATCH_LIMITATION };
+});
+app.delete('/api/watchlist/:address', async (req, reply) => {
+  const { address } = parse(walletParam, req.params);
+  return (await A.removeWatched(db, address)) ? { ok: true } : reply.code(404).send({ error: 'not on the watchlist' });
+});
+
 // "Update today": fetches the unfinished current UTC day on demand (Dune credits). The fetch runs in the background; the page polls GET.
 interface RefreshJob { state: 'idle' | 'running' | 'done' | 'error'; startedAt?: string; finishedAt?: string; result?: { inserted: number; credits: number; to: string }; error?: string }
 let refreshJob: RefreshJob = { state: 'idle' };

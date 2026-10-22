@@ -79,6 +79,27 @@ export function loadConfig(): DeodConfig {
   return cached;
 }
 
+const Severity = z.enum(['low', 'medium', 'high']);
+const AlertsSchema = z.object({
+  scan: z.object({ max_alert_age_days: z.number().positive() }),
+  rules: z.object({
+    large_transfer: z.object({ enabled: z.boolean(), name: z.string(), severity: Severity, min_amount: z.number().positive() }),
+    large_swap: z.object({ enabled: z.boolean(), name: z.string(), severity: Severity, min_amount: z.number().positive() }),
+    flow_spike: z.object({
+      enabled: z.boolean(), name: z.string(), severity: Severity,
+      multiplier: z.number().positive(), baseline_days: z.number().int().min(1), min_history_days: z.number().int().min(1), min_amount: z.number().positive(),
+    }),
+  }),
+  watched_wallet: z.object({ severity: Severity }),
+});
+
+export type AlertsConfig = z.infer<typeof AlertsSchema>;
+
+/** Alert thresholds (config/alerts.yaml). Read fresh each time so a scan always uses the current file. */
+export function loadAlertsConfig(): AlertsConfig {
+  return AlertsSchema.parse(parse(readFileSync(resolve(backendRoot(), 'config/alerts.yaml'), 'utf8')));
+}
+
 const EnvSchema = z.object({
   DUNE_API_KEY: z.string().optional(),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),

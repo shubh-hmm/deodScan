@@ -198,6 +198,23 @@ Avoid joining `tokens.transfers` to label tables: one exploratory query that did
 
 The period you pick (1H, 6H, 24H, 7D, 30D, All or a custom date range) stays selected on every page, in new tabs and after a reload. It is kept in a browser cookie named `deod_range` (one year). A period in the address always wins and becomes the new remembered one. To forget it, delete that cookie.
 
+## Alerts and wallet watching
+
+The **Alerts** page lists automatic alerts and manages a watchlist of wallets. Detection is plain rules on data already in the database; no AI and no Dune calls are involved, so it costs no credits and works without any AI key.
+
+| Rule | Raises an alert when | Default (`backend/config/alerts.yaml`) |
+|---|---|---|
+| Large exchange transfer | one deposit/withdrawal on a monitored exchange address is at least X | 500,000 DEOD |
+| Large PancakeSwap swap | one swap is at least X | 50,000 DEOD |
+| Unusual exchange flow | a finished UTC day's total IN (or OUT) for an exchange is at least 3x its 30-day daily average and at least X | 250,000 DEOD, needs 14 days of history |
+| Watched wallet activity | a recorded transfer or swap involves a wallet on your watchlist | any amount (set a minimum per wallet) |
+
+- Each alert shows the amount, sender, recipient, time, transaction hash and a block explorer link (daily-flow alerts show the baseline instead of a transaction).
+- Alerts are created after every sync (and after **Update today**). They are stored once: the same transfer can never alert twice, even if a sync or scan is repeated. Transfers older than 7 days never alert, so a backfill creates no flood.
+- To scan the stored data right now (database only, no credits): `npx tsx worker/src/cli.ts alerts` in the backend folder. `--rescan` re-reads the last 7 days (it can add alerts for a wallet you started watching after its activity was scanned, but never duplicates).
+- **Limits:** monitoring covers only recorded transactions (transfers to/from the monitored exchange addresses and swaps on the monitored pools). It cannot see other wallet transfers, and data arrives once per finished day or when you press Update today, so alerts are not real time. A wallet added to the watchlist alerts only on activity recorded afterwards.
+- The first start after this update applies database migration `003_alerts.sql` automatically (new tables only; nothing existing is changed).
+
 ## Sign-in (admin only)
 
 The whole dashboard sits behind a sign-in page for one admin (Bimal Pradhan). Without a valid session every page redirects to `/login`, and the page scripts' routes (`/api-price`, `/api-refresh`, CSV exports) answer 401.

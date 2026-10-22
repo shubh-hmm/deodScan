@@ -3,6 +3,7 @@ import { api, flat, labelMap, meta, type SearchParams } from '@/lib/api';
 import { fmtDeod, fmtInt, fmtTime, fmtUsd, venueName } from '@/lib/format';
 import { Card, Deod, Dir, Empty, Note, PageHeader, Stat, Tx } from '@/components/ui';
 import { Pager } from '@/components/filters';
+import { WatchToggle } from '@/components/watch-controls';
 
 export const dynamic = 'force-dynamic';
 const LIMIT = 200;
@@ -12,7 +13,11 @@ export default async function Wallet({ params, searchParams }: { params: Promise
   if (!/^0x[0-9a-fA-F]{40}$/.test(raw)) notFound();
   const address = raw.toLowerCase();
   const p = await flat(searchParams);
-  const [m, d] = await Promise.all([meta(), api(`/api/wallets/${address}`, { limit: String(LIMIT), offset: p.offset })]);
+  const [m, d, watched] = await Promise.all([
+    meta(), api(`/api/wallets/${address}`, { limit: String(LIMIT), offset: p.offset }),
+    // Before the alerts database update is applied this call fails; the wallet page must still work, just without the watch button.
+    api<{ rows: { address: string }[] }>('/api/watchlist').catch(() => null),
+  ]);
   const labels = labelMap(m);
   const s = d.summary;
   const label = labels.get(address);
@@ -29,7 +34,9 @@ export default async function Wallet({ params, searchParams }: { params: Promise
           <a className="link" href={`${m.chain.explorer_address_url}${address}`} target="_blank" rel="noreferrer">View on BscScan</a>
           {' · '}<a className="link" href={`/api-export/wallets/${address}/activity.csv`}>Export activity CSV</a>
         </>}
-      />
+      >
+        {watched ? <WatchToggle address={address} watched={watched.rows.some((w) => w.address === address)} /> : null}
+      </PageHeader>
 
       {!s ? (
         <Card><Empty>No monitored DEOD activity for this address (no transfers with configured exchange addresses and no PancakeSwap swaps as transaction signer).

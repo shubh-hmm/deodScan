@@ -428,3 +428,5 @@ export async function syncStatus(db: pg.Pool) {
   ]);
   return { queries: state.rows, recentRuns: runs.rows, rejectedRows: rejections.rows[0].n as number };
 }
+
+export * from './alerts.js';

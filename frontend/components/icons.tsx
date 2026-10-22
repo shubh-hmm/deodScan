@@ -21,6 +21,7 @@ export const Icons = {
   search: <Svg><circle cx="11" cy="11" r="6.5" /><path d="m20 20-4.2-4.2" /></Svg>,
   info: <Svg size={14}><circle cx="12" cy="12" r="9" /><path d="M12 11v5" /><path d="M12 7.6v.1" /></Svg>,
   refresh: <Svg size={14}><path d="M20 11a8 8 0 0 0-14.5-4.5L4 8" /><path d="M4 4v4h4" /><path d="M4 13a8 8 0 0 0 14.5 4.5L20 16" /><path d="M20 20v-4h-4" /></Svg>,
+  bell: <Svg><path d="M6 9a6 6 0 0 1 12 0c0 6 2.5 7.5 2.5 7.5h-17S6 15 6 9Z" /><path d="M10 20a2 2 0 0 0 4 0" /></Svg>,
   download: <Svg size={14}><path d="M12 4v11" /><path d="m7 11 5 5 5-5" /><path d="M5 20h14" /></Svg>,
   calendar: <Svg size={14}><rect x="3.5" y="5" width="17" height="15.5" rx="2.5" /><path d="M3.5 10h17" /><path d="M8 3v4M16 3v4" /></Svg>,
   coin: <Svg><circle cx="12" cy="12" r="8.5" /><path d="M14.8 9.3c-.5-.8-1.5-1.2-2.8-1.2-1.6 0-2.7.8-2.7 2 0 2.9 5.6 1.4 5.6 4.1 0 1.2-1.2 2-2.9 2-1.4 0-2.5-.5-3.1-1.4" /><path d="M12 6.5v1.6M12 15.9v1.6" /></Svg>,

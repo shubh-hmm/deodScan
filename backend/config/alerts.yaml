@@ -1,0 +1,37 @@
+# Alert rules for DEODScan. Deterministic: every alert comes from stored, verified transfers and swaps with the plain rules below.
+# No AI is involved in detecting anything. Edit a value and restart the backend/worker (rules are re-read from this file on every scan).
+#
+# Defaults were chosen from the stored data on 2026-10-22: of 2,324 exchange transfers in 90 days, the 99th percentile was ~355K DEOD,
+# 14 were >= 500K (about one every 6 days); the largest swap was ~94K DEOD and the 99th percentile ~10.7K.
+
+scan:
+  # A transfer or swap older than this is never alerted on. It stops a history backfill (or "Update today" catching up on old days)
+  # from creating a flood of alerts about things that happened a while ago.
+  max_alert_age_days: 7
+
+rules:
+  large_transfer:
+    enabled: true
+    name: Large exchange transfer
+    severity: high
+    min_amount: 500000        # DEOD, one deposit to / withdrawal from a monitored exchange address (>=)
+  large_swap:
+    enabled: true
+    name: Large PancakeSwap swap
+    severity: medium
+    min_amount: 50000         # DEOD in one swap (>=)
+  flow_spike:
+    enabled: true
+    name: Unusual exchange flow
+    severity: medium
+    # For a finished UTC day: an exchange's total IN (or OUT) is flagged when it is at least `multiplier` times its average daily total
+    # over the previous `baseline_days` days AND at least `min_amount` DEOD. Days with no activity count as zero, but only days since the
+    # exchange's first stored transfer, and nothing is flagged until `min_history_days` such days exist (not enough history = no alert).
+    multiplier: 3
+    baseline_days: 30
+    min_history_days: 14
+    min_amount: 250000
+
+# Alerts for wallets on the watchlist (added in the dashboard). Only transfers/swaps that are already stored can trigger them.
+watched_wallet:
+  severity: medium
