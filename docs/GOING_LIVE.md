@@ -23,7 +23,7 @@ Backend (`backend/.env` on the server, never in git):
 | `INTERNAL_API_KEY` | **must**: a long random string. The API refuses to start on a non-local `API_HOST` without it. Put the same value in the dashboard's settings |
 | `API_HOST` | `127.0.0.1` when the dashboard is on the same machine; otherwise the private address, and keep the port closed to the internet |
 | `ADMIN_TOKEN` | only if you use `/api/admin/*`; long and random |
-| `REFRESH_TODAY_ENABLED` | `true` keeps the "Update today" button (about 0.4 to 0.9 Dune credits per use) |
+| `REFRESH_TODAY_ENABLED` | `true` keeps the "Update today" button (about 0.4 to 1.4 Dune credits per use) |
 | `REFRESH_TODAY_MAX_PER_DAY` | uses of "Update today" per UTC day (default 2); `REFRESH_TODAY_COOLDOWN_MINUTES` (default 10) is the minimum gap between two uses |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ACCESS_CODE` | optional; the code is a long secret you give only to people you want in |
 | `OPENAI_API_KEY`, `OPENAI_MODEL`, `ASK_DAILY_LIMIT` | optional; **also set a monthly spending limit in the OpenAI dashboard** |

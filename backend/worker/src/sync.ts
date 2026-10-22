@@ -229,7 +229,7 @@ export async function syncAllCompletedDays() {
 export const TODAY_COOLDOWN_SECONDS = Number(process.env.REFRESH_TODAY_COOLDOWN_MINUTES ?? 10) * 60;
 
 /**
- * How many times "Update today" may be used per UTC day (each use costs Dune credits: about 0.4 to 0.9). Environment: REFRESH_TODAY_MAX_PER_DAY,
+ * How many times "Update today" may be used per UTC day (each use costs Dune credits: about 0.4 to 1.4). Environment: REFRESH_TODAY_MAX_PER_DAY,
  * default 2. A use that started counts even if it failed, because a started Dune run is billed.
  */
 export const TODAY_MAX_PER_DAY = (() => { const n = Math.floor(Number(process.env.REFRESH_TODAY_MAX_PER_DAY)); return Number.isFinite(n) && n >= 1 ? n : 2; })();
