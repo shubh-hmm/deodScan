@@ -10,6 +10,7 @@
 import { closePool, getPool, migrate, seedFromConfig } from '@deod/db';
 import { scanAlerts } from './alerts/scan.js';
 import { apiFromEnv, notifyPending } from './alerts/notify.js';
+import { autoConfigFromEnv, autoUpdateCheck } from './autoToday.js';
 import { MIN_ACCESS_CODE_LENGTH } from './telegram/bot.js';
 import { loadEnv } from '@deod/config';
 import { createAsk, listModels } from '@deod/ask';
@@ -56,6 +57,14 @@ try {
     log.info(r, 'alert scan complete');
     try { log.info(await notifyPending(), 'alert notifications'); }
     catch (e) { log.warn({ err: e instanceof Error ? e.message : String(e) }, 'alerts were scanned and stored; sending to Telegram failed'); }
+  } else if (cmd === 'auto-check') {
+    // Shows what the worker's automatic update of today's data would do right now. A dry run: nothing is fetched and no credits are spent
+    // unless you add --run (which then performs the update if it is due).
+    const cfg = autoConfigFromEnv();
+    const real = process.argv.includes('--run');
+    const r = await autoUpdateCheck(new Date(), cfg, getPool(), real ? syncToday : async () => undefined);
+    log.info({ enabled: cfg.enabled, timesUtc: cfg.slots.map((s) => `${String(s.hour).padStart(2, '0')}:${String(s.minute).padStart(2, '0')}`), warning: cfg.warning }, 'automatic update settings');
+    console.log(r.ran ? (real ? `Updated now: ${r.reason}` : `Dry run: an update is DUE now (${r.reason}). Add --run to perform it (spends Dune credits).`) : `Nothing to do now: ${r.reason}`);
   } else if (cmd === 'ask-check') {
     // Checks "Ask DEODScan AI": the OpenAI key, whether the chosen model is available to it, and (only with --question "...") one real question,
     // which uses a few cents of OpenAI credit. Without --question nothing is spent.
@@ -98,7 +107,7 @@ try {
     const r = await syncToday();
     log.info(r, 'today so far fetched; the unfinished day is stored, the daily checkpoint is unchanged');
   } else {
-    console.error('usage: sync alerts [--rescan] | sync telegram-test | sync telegram-check | sync ask-check [--question "..."] | sync telegram-users [--revoke <chat_id>] | sync today | sync backfill --from YYYY-MM-DD [--to ...] [--window-days N] [--query name] | sync daily');
+    console.error('usage: sync alerts [--rescan] | sync telegram-test | sync telegram-check | sync auto-check [--run] | sync ask-check [--question "..."] | sync telegram-users [--revoke <chat_id>] | sync today | sync backfill --from YYYY-MM-DD [--to ...] [--window-days N] [--query name] | sync daily');
     process.exitCode = 2;
   }
 } catch (err) {

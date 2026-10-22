@@ -6,7 +6,8 @@ import { Icons } from '@/components/icons';
 
 interface Job { state: 'idle' | 'running' | 'done' | 'error'; result?: { inserted: number; credits: number }; error?: string }
 interface Usage { used: number; max: number; remaining: number }
-interface Status { enabled: boolean; cooldownSeconds: number; usage?: Usage; job: Job }
+interface Auto { enabled: boolean; timesUtc: string[] }
+interface Status { enabled: boolean; cooldownSeconds: number; usage?: Usage; auto?: Auto; job: Job }
 
 type Phase = 'idle' | 'confirm' | 'running' | 'done' | 'error';
 
@@ -23,6 +24,7 @@ export function RefreshToday() {
   const [phase, setPhase] = useState<Phase>('idle');
   const [message, setMessage] = useState('');
   const [usage, setUsage] = useState<Usage | null>(null);
+  const [auto, setAuto] = useState<Auto | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const status = useCallback(async (): Promise<Status | null> => {
@@ -54,6 +56,7 @@ export function RefreshToday() {
       if (!alive || !s) return;
       setEnabled(s.enabled);
       if (s.usage) setUsage(s.usage);
+      if (s.auto) setAuto(s.auto);
       if (s.job.state === 'running') { setPhase('running'); void poll(); }
     });
     return () => { alive = false; if (timer.current) clearTimeout(timer.current); };
@@ -74,6 +77,10 @@ export function RefreshToday() {
   }
 
   if (!enabled) return null;
+  // The worker's scheduled times are in UTC; show them in the viewer's own time so nobody has to convert.
+  const autoText = auto?.enabled && auto.timesUtc.length
+    ? ` The worker also updates by itself at ${auto.timesUtc.map((t) => { const [h, m] = t.split(':').map(Number); return new Date(Date.UTC(2026, 0, 1, h, m)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }).join(' and ')} your time (${auto.timesUtc.join(' and ')} UTC), using the same ${usage?.max ?? 2} updates a day.`
+    : '';
   const limitReached = !!usage && usage.remaining <= 0;
 
   if (phase === 'confirm') {
@@ -92,8 +99,8 @@ export function RefreshToday() {
       disabled={phase === 'running' || limitReached}
       onClick={() => setPhase('confirm')}
       title={limitReached
-        ? `Used ${usage!.max} of ${usage!.max} times today. It resets at 00:00 UTC. Finished days are still synced automatically.`
-        : `Fetch today's unfinished UTC day from Dune (finished days are synced automatically by the worker).${usage ? ` ${usage.remaining} of ${usage.max} uses left today.` : ''}`}
+        ? `Used ${usage!.max} of ${usage!.max} updates today (automatic and manual together). It resets at 00:00 UTC. Finished days are still synced automatically.${autoText}`
+        : `Fetch today's unfinished UTC day from Dune (finished days are synced automatically by the worker).${usage ? ` ${usage.remaining} of ${usage.max} updates left today.` : ''}${autoText}`}
     >
       <span className={phase === 'running' ? 'animate-spin' : ''}>{Icons.refresh}</span>
       <span aria-live="polite">

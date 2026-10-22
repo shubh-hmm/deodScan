@@ -273,11 +273,22 @@ Before putting it on the internet:
 - Set `REFRESH_TODAY_ENABLED=false` in `backend/.env` only if you do not want the Update today button at all (it already needs a signed-in session).
 - Run the dashboard on one server instance: the lockout counter is kept in memory, so on serverless hosting it is per instance and weaker; the password length is the real protection.
 
+## Automatic updates of today (twice a day)
+
+While the **worker** is running (`npm run dev:worker`, or the worker on a server), it also fetches today's unfinished day by itself **twice a day**, by default at **06:00 and 14:00 UTC** (11:30 AM and 7:30 PM in India). This is separate from the daily sync of finished days (about 02:00 UTC) and uses the **same daily budget as the button**: 2 updates per UTC day in all, automatic and manual together, so the cost stays at about 0.4 to 1.4 Dune credits each and at most a few credits a day. Rules:
+
+- At each scheduled time the worker runs one update unless today's data was already updated since that time (a manual press counts), the daily limit is used up, or the last update was under 10 minutes ago.
+- If the worker was off at a scheduled time, only the most recent missed time is made up when it starts, not every missed one.
+- A failed attempt counts as one of the day's updates (Dune may have billed the run) and is not retried until the next scheduled time.
+- Settings in `backend/.env`: `AUTO_UPDATE_TODAY=false` switches it off; `AUTO_UPDATE_TODAY_AT=06:00,14:00` sets the UTC times (up to 6); `REFRESH_TODAY_MAX_PER_DAY` is the shared daily budget.
+- See what it would do right now, without spending anything: `npx tsx worker/src/cli.ts auto-check` (add `--run` to perform the update if it is due).
+- The button's tooltip lists the automatic times in your own time zone.
+
 ## "Update today" button
 
 The worker syncs only **finished** UTC days, so today's transfers appear after the day ends (about 02:00 UTC the next day). The **Update today** button in the dashboard header fetches today's unfinished day so far, on demand:
 
-- It asks first, because each fetch uses Dune credits (about 0.4 to 1.4, measured). **It can be used 2 times per UTC day** (`REFRESH_TODAY_MAX_PER_DAY`, default 2; the count resets at 00:00 UTC and also applies to the terminal command), with at least 10 minutes between two uses (`REFRESH_TODAY_COOLDOWN_MINUTES`). The button shows how many uses are left ("Update today · 2 left") and switches itself off, with the reason in its tooltip, when none are. A use that started counts even if it failed, because Dune bills a started run. At most about 2 credits a day on top of the automatic daily sync.
+- It asks first, because each fetch uses Dune credits (about 0.4 to 1.4, measured). **It can be used 2 times per UTC day** (`REFRESH_TODAY_MAX_PER_DAY`, default 2; automatic and manual updates share this budget; the count resets at 00:00 UTC and also applies to the terminal command), with at least 10 minutes between two uses (`REFRESH_TODAY_COOLDOWN_MINUTES`). The button shows how many uses are left ("Update today · 2 left") and switches itself off, with the reason in its tooltip, when none are. A use that started counts even if it failed, because Dune bills a started run. At most about 2 credits a day on top of the automatic daily sync.
 - The rows are stored with the normal duplicate protection. The next daily sync fetches the whole day again and adds nothing twice; the daily checkpoint is not moved.
 - It needs the backend running (`npm run dev`), but not the worker. The same thing from a terminal: `npx tsx worker/src/cli.ts today`.
 - On a public server set `REFRESH_TODAY_ENABLED=false` in `backend/.env`: anyone who can open the page could otherwise press it and spend credits. The button then disappears.

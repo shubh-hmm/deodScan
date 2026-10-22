@@ -6,6 +6,7 @@
 // already running gets up to SHUTDOWN_GRACE_SECONDS (default 20) to finish, so Dune credits already spent are not wasted.
 import { closePool, getPool, migrate, seedFromConfig } from '@deod/db';
 import { requestStop, syncAllCompletedDays, log } from './sync.js';
+import { startAutoUpdates } from './autoToday.js';
 
 const intervalMs = Number(process.env.SYNC_INTERVAL_MINUTES ?? 60) * 60_000;
 const graceMs = Number(process.env.SHUTDOWN_GRACE_SECONDS ?? 20) * 1000;
@@ -13,6 +14,8 @@ let running = false;
 let inFlight: Promise<void> = Promise.resolve();
 let timer: NodeJS.Timeout | undefined;
 let stopping = false;
+// Automatic updates of today's unfinished day at fixed UTC times (default 06:00 and 14:00), see autoToday.ts. Started once the worker is up.
+let auto: ReturnType<typeof startAutoUpdates> | undefined;
 
 function tick(): Promise<void> {
   if (running) {
@@ -37,10 +40,11 @@ async function shutdown(reason: string, exitCode = 0) {
   if (stopping) return;
   stopping = true;
   clearInterval(timer);
+  auto?.stop();
   requestStop();
-  if (running) {
+  if (running || auto?.running()) {
     log.info({ reason, graceSeconds: graceMs / 1000 }, 'shutdown requested; letting the running sync finish');
-    const finished = await Promise.race([inFlight.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), graceMs))]);
+    const finished = await Promise.race([Promise.all([inFlight, auto?.done()]).then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), graceMs))]);
     if (!finished) log.warn('the sync did not finish in time; exiting anyway. That day will be fetched again on the next start and may cost Dune credits again');
   } else {
     log.info({ reason }, 'shutdown requested');
@@ -66,3 +70,4 @@ await seedFromConfig();
 log.info({ checkIntervalMinutes: intervalMs / 60_000 }, 'worker started');
 await tick();
 if (!stopping) timer = setInterval(() => void tick(), intervalMs);
+if (!stopping) auto = startAutoUpdates();

@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { loadConfig, loadEnv } from '@deod/config';
 import { closePool, getPool, migrate, refreshWalletSummary, deriveExchangeFlows, seedFromConfig } from '@deod/db';
 import * as A from '@deod/analytics';
-import { syncAllCompletedDays, syncToday, todayCooldownSeconds, todayUsage, SyncLimitError, startBotFromEnv, apiFromEnv, MIN_ACCESS_CODE_LENGTH, SyncBusyError, SyncCooldownError } from '@deod/worker';
+import { syncAllCompletedDays, syncToday, todayCooldownSeconds, todayUsage, autoConfigFromEnv, SyncLimitError, startBotFromEnv, apiFromEnv, MIN_ACCESS_CODE_LENGTH, SyncBusyError, SyncCooldownError } from '@deod/worker';
 import { createAsk, LlmError } from '@deod/ask';
 import { toCsv } from './csv.js';
 import { getPrice } from './price.js';
@@ -266,7 +266,11 @@ interface RefreshJob { state: 'idle' | 'running' | 'done' | 'error'; startedAt?:
 let refreshJob: RefreshJob = { state: 'idle' };
 const refreshEnabled = env.REFRESH_TODAY_ENABLED === 'true';
 
-app.get('/api/sync/today', async () => ({ enabled: refreshEnabled, cooldownSeconds: await todayCooldownSeconds(), usage: await todayUsage(), job: refreshJob }));
+// When the worker updates today's data by itself (UTC times), so the button can say so. Only what the worker is configured to do; whether a
+// worker is running is not known to the API.
+const autoInfo = () => { const c = autoConfigFromEnv(); return { enabled: c.enabled, timesUtc: c.slots.map((s) => `${String(s.hour).padStart(2, '0')}:${String(s.minute).padStart(2, '0')}`) }; };
+
+app.get('/api/sync/today', async () => ({ enabled: refreshEnabled, cooldownSeconds: await todayCooldownSeconds(), usage: await todayUsage(), auto: autoInfo(), job: refreshJob }));
 
 app.post('/api/sync/today', async (_req, reply) => {
   if (!refreshEnabled) return reply.code(403).send({ error: 'Update today is switched off on this server' });

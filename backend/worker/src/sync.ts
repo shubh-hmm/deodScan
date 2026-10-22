@@ -13,6 +13,7 @@ import { notifyPending } from './alerts/notify.js';
 export { scanAlerts } from './alerts/scan.js';
 export { startBotFromEnv, MIN_ACCESS_CODE_LENGTH } from './telegram/bot.js';
 export { apiFromEnv } from './alerts/notify.js';
+export { autoConfigFromEnv } from './autoToday.js';
 
 export const log = pino({ level: process.env.LOG_LEVEL ?? 'info', base: { svc: 'worker' } });
 
