@@ -1,4 +1,5 @@
 import pino from 'pino';
+import type pg from 'pg';
 import { loadConfig, loadEnv, monitoredPools } from '@deod/config';
 import { completedDayWindows, normalizeSwap, normalizeTransfer, type SwapContext } from '@deod/core';
 import { DuneClient, duneTimestamp, loadQuery, renderSql } from '@deod/dune';
@@ -227,9 +228,31 @@ export async function syncAllCompletedDays() {
 /** Minimum time between two "Update today" fetches, so the button cannot burn Dune credits by being clicked repeatedly. */
 export const TODAY_COOLDOWN_SECONDS = Number(process.env.REFRESH_TODAY_COOLDOWN_MINUTES ?? 10) * 60;
 
+/**
+ * How many times "Update today" may be used per UTC day (each use costs Dune credits: about 0.4 to 0.9). Environment: REFRESH_TODAY_MAX_PER_DAY,
+ * default 2. A use that started counts even if it failed, because a started Dune run is billed.
+ */
+export const TODAY_MAX_PER_DAY = (() => { const n = Math.floor(Number(process.env.REFRESH_TODAY_MAX_PER_DAY)); return Number.isFinite(n) && n >= 1 ? n : 2; })();
+
+export interface TodayUsage { used: number; max: number; remaining: number }
+
+export async function todayUsage(now = new Date(), db: pg.Pool = getPool()): Promise<TodayUsage> {
+  const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  // One use starts one run per query, so counting the first query's runs counts the uses.
+  const { rows } = await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM sync_runs WHERE mode = 'today' AND query_name = $1 AND started_at >= $2`, [QUERIES[0], dayStart]);
+  const used = rows[0]?.n ?? 0;
+  return { used, max: TODAY_MAX_PER_DAY, remaining: Math.max(0, TODAY_MAX_PER_DAY - used) };
+}
+
+export class SyncLimitError extends Error {
+  constructor(readonly max: number) {
+    super(`"Update today" has already been used ${max} ${max === 1 ? 'time' : 'times'} today, which is the limit. It resets at 00:00 UTC; finished days are still synced automatically.`);
+  }
+}
+
 /** Seconds until "Update today" may run again (0 = now). Based on the last 'today' run recorded in the database. */
-export async function todayCooldownSeconds(now = new Date()): Promise<number> {
-  const { rows } = await getPool().query<{ t: Date | null }>(`SELECT max(started_at) AS t FROM sync_runs WHERE mode = 'today'`);
+export async function todayCooldownSeconds(now = new Date(), db: pg.Pool = getPool()): Promise<number> {
+  const { rows } = await db.query<{ t: Date | null }>(`SELECT max(started_at) AS t FROM sync_runs WHERE mode = 'today'`);
   const last = rows[0]?.t;
   return last ? Math.max(0, Math.ceil(TODAY_COOLDOWN_SECONDS - (now.getTime() - last.getTime()) / 1000)) : 0;
 }
@@ -245,6 +268,8 @@ export class SyncCooldownError extends Error {
  */
 export async function syncToday(now = new Date()) {
   return withSyncLock(async () => {
+    const usage = await todayUsage(now);
+    if (usage.remaining <= 0) throw new SyncLimitError(usage.max);
     const wait = await todayCooldownSeconds(now);
     if (wait > 0) throw new SyncCooldownError(wait);
     const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));

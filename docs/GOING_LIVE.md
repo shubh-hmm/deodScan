@@ -23,7 +23,8 @@ Backend (`backend/.env` on the server, never in git):
 | `INTERNAL_API_KEY` | **must**: a long random string. The API refuses to start on a non-local `API_HOST` without it. Put the same value in the dashboard's settings |
 | `API_HOST` | `127.0.0.1` when the dashboard is on the same machine; otherwise the private address, and keep the port closed to the internet |
 | `ADMIN_TOKEN` | only if you use `/api/admin/*`; long and random |
-| `REFRESH_TODAY_ENABLED` | `true` keeps the "Update today" button (spends a little Dune credit, once per 10 minutes at most) |
+| `REFRESH_TODAY_ENABLED` | `true` keeps the "Update today" button (about 0.4 to 0.9 Dune credits per use) |
+| `REFRESH_TODAY_MAX_PER_DAY` | uses of "Update today" per UTC day (default 2); `REFRESH_TODAY_COOLDOWN_MINUTES` (default 10) is the minimum gap between two uses |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ACCESS_CODE` | optional; the code is a long secret you give only to people you want in |
 | `OPENAI_API_KEY`, `OPENAI_MODEL`, `ASK_DAILY_LIMIT` | optional; **also set a monthly spending limit in the OpenAI dashboard** |
 
@@ -72,7 +73,7 @@ The data can be re-fetched from Dune, but it costs credits and the earlier histo
 | Control | Limit |
 |---|---|
 | Dune: one run | cancelled after 10 minutes or 30 credits (raise the settings above for a deliberate large history load) |
-| Dune: normal operation | each finished day is fetched once; the current day only when someone presses "Update today" (10-minute cooldown) |
+| Dune: normal operation | each finished day is fetched once; the current day only when someone presses "Update today": at most 2 uses per UTC day and 10 minutes apart |
 | Dune: wide history loads | never run `backfill` over a long range without checking the cost first: a scan of 18 months cost 71 credits and returned nothing |
 | OpenAI | `ASK_DAILY_LIMIT` questions per UTC day; 120 seconds per question; at most 8 model calls per question |
 | Telegram | at most 20 alerts per person per run; failed sends retried 5 times |

@@ -5,21 +5,24 @@ import { useRouter } from 'next/navigation';
 import { Icons } from '@/components/icons';
 
 interface Job { state: 'idle' | 'running' | 'done' | 'error'; result?: { inserted: number; credits: number }; error?: string }
-interface Status { enabled: boolean; cooldownSeconds: number; job: Job }
+interface Usage { used: number; max: number; remaining: number }
+interface Status { enabled: boolean; cooldownSeconds: number; usage?: Usage; job: Job }
 
 type Phase = 'idle' | 'confirm' | 'running' | 'done' | 'error';
 
 const POLL_MS = 3000;
 
 /**
- * "Update today": fetches the unfinished current UTC day on demand. It costs Dune credits, so it asks first, and the server
- * allows it only once every few minutes. While it runs the button polls; when it finishes the page data is reloaded.
+ * "Update today": fetches the unfinished current UTC day on demand. It costs Dune credits, so it asks first, and the server allows
+ * it only a limited number of times per UTC day (default 2) and not twice within a few minutes. The button shows how many uses are left.
+ * While it runs the button polls; when it finishes the page data is reloaded.
  */
 export function RefreshToday() {
   const router = useRouter();
   const [enabled, setEnabled] = useState(true);
   const [phase, setPhase] = useState<Phase>('idle');
   const [message, setMessage] = useState('');
+  const [usage, setUsage] = useState<Usage | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const status = useCallback(async (): Promise<Status | null> => {
@@ -31,6 +34,7 @@ export function RefreshToday() {
 
   const poll = useCallback(async () => {
     const s = await status();
+    if (s?.usage) setUsage(s.usage);
     if (s?.job.state === 'running') { timer.current = setTimeout(poll, POLL_MS); return; }
     if (s?.job.state === 'done') {
       setPhase('done');
@@ -49,6 +53,7 @@ export function RefreshToday() {
     void status().then((s) => {
       if (!alive || !s) return;
       setEnabled(s.enabled);
+      if (s.usage) setUsage(s.usage);
       if (s.job.state === 'running') { setPhase('running'); void poll(); }
     });
     return () => { alive = false; if (timer.current) clearTimeout(timer.current); };
@@ -61,6 +66,7 @@ export function RefreshToday() {
       if (res.status === 202 || res.status === 409) { timer.current = setTimeout(poll, POLL_MS); return; }
       const body = (await res.json().catch(() => ({}))) as { error?: string };
       setPhase('error'); setMessage(body.error ?? `Failed (${res.status})`);
+      void status().then((s) => { if (s?.usage) setUsage(s.usage); });
       timer.current = setTimeout(() => setPhase('idle'), 10000);
     } catch {
       setPhase('error'); setMessage('No answer from the backend');
@@ -68,11 +74,12 @@ export function RefreshToday() {
   }
 
   if (!enabled) return null;
+  const limitReached = !!usage && usage.remaining <= 0;
 
   if (phase === 'confirm') {
     return (
       <div className="chip" role="alertdialog" aria-label="Confirm update">
-        <span>Fetch today so far? Uses Dune credits (about 1).</span>
+        <span>Fetch today so far? Uses about 0.5–1 Dune credit{usage ? `; ${usage.remaining} of ${usage.max} uses left today` : ''}.</span>
         <button type="button" className="btn !px-2.5 !py-1 text-xs" onClick={() => void start()}>Fetch</button>
         <button type="button" className="link text-xs" onClick={() => setPhase('idle')}>Cancel</button>
       </div>
@@ -82,13 +89,15 @@ export function RefreshToday() {
     <button
       type="button"
       className="chip cursor-pointer hover:border-line-strong disabled:cursor-wait"
-      disabled={phase === 'running'}
+      disabled={phase === 'running' || limitReached}
       onClick={() => setPhase('confirm')}
-      title="Fetch today's unfinished UTC day from Dune (finished days are synced automatically by the worker)"
+      title={limitReached
+        ? `Used ${usage!.max} of ${usage!.max} times today. It resets at 00:00 UTC. Finished days are still synced automatically.`
+        : `Fetch today's unfinished UTC day from Dune (finished days are synced automatically by the worker).${usage ? ` ${usage.remaining} of ${usage.max} uses left today.` : ''}`}
     >
       <span className={phase === 'running' ? 'animate-spin' : ''}>{Icons.refresh}</span>
       <span aria-live="polite">
-        {phase === 'running' ? 'Fetching today…' : phase === 'done' ? `Updated · ${message}` : phase === 'error' ? message : 'Update today'}
+        {phase === 'running' ? 'Fetching today…' : phase === 'done' ? `Updated · ${message}` : phase === 'error' ? message : limitReached ? 'Update today · limit reached' : usage ? `Update today · ${usage.remaining} left` : 'Update today'}
       </span>
     </button>
   );
