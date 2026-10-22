@@ -101,6 +101,8 @@ app.get('/api/price', async (req, reply) => {
 });
 
 app.get('/api/overview', async (req) => A.overview(db, windowOf(req.query)));
+// Plain-language summary of the same period, written by fixed rules from the overview numbers (no AI).
+app.get('/api/summary', async (req) => A.summarize(db, windowOf(req.query)));
 
 app.get('/api/flows/series', async (req) => {
   const { exchange } = parse(z.object({ exchange: z.string().regex(/^[a-z0-9_]+$/).optional() }).passthrough(), req.query);

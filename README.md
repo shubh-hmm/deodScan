@@ -198,6 +198,12 @@ Avoid joining `tokens.transfers` to label tables: one exploratory query that did
 
 The period you pick (1H, 6H, 24H, 7D, 30D, All or a custom date range) stays selected on every page, in new tabs and after a reload. It is kept in a browser cookie named `deod_range` (one year). A period in the address always wins and becomes the new remembered one. To forget it, delete that cookie.
 
+## Dashboard summary
+
+The **Summary** card at the top of the dashboard describes, in plain sentences, what the page shows for the selected period: exchange deposits and withdrawals and the net flow, each exchange's activity, the largest single transfer, PancakeSwap buying and selling, the change against the previous period of the same length, the alerts raised, and notes on what the data cannot show (data is synced once per finished UTC day; exchanges whose recorded history starts later). **Copy summary** copies it as text. API: `GET /api/summary?range=...`.
+
+It is written by fixed rules from the same numbers as the cards and tables (no AI, no estimates), so it always agrees with the page and costs nothing. An AI model could later reword it, but would have to be given exactly these numbers.
+
 ## Alerts and wallet watching
 
 The **Alerts** page lists automatic alerts and manages a watchlist of wallets. Detection is plain rules on data already in the database; no AI and no Dune calls are involved, so it costs no credits and works without any AI key.

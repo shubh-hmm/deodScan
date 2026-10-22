@@ -430,3 +430,4 @@ export async function syncStatus(db: pg.Pool) {
 }
 
 export * from './alerts.js';
+export * from './summary.js';
