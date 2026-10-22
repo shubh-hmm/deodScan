@@ -274,7 +274,7 @@ if (NO_CHAIN) info('skipped (--no-chain)'); else for (const m of monitored) {
   const [s] = await q(`select coalesce(sum(amount_raw) filter (where to_address=$1),0)::text i, coalesce(sum(amount_raw) filter (where from_address=$1),0)::text o from token_transfers where (to_address=$1 or from_address=$1) and from_address<>to_address`, [m.address]);
   const stored = BigInt(s.i) - BigInt(s.o), diff = onchain - stored;
   if (diff === 0n) check(`${m.exchange}: exact match to the last decimal`, true, `${(Number(onchain) / 1e18).toFixed(4)} DEOD`);
-  else info(`${m.exchange}: on-chain ${(Number(onchain) / 1e18).toFixed(4)} vs stored ${(Number(stored) / 1e18).toFixed(4)}, difference ${(Number(diff) / 1e18).toFixed(4)}`, 'expected: activity since the last completed UTC day is not synced yet; re-run right after the next daily sync');
+  else info(`${m.exchange}: on-chain ${(Number(onchain) / 1e18).toFixed(4)} vs stored ${(Number(stored) / 1e18).toFixed(4)}, difference ${(Number(diff) / 1e18).toFixed(4)}`, 'not an error by itself: it is either holdings the address had before the history was loaded (from 2026-07-01 for XT, BingX, Poloniex and WEEX; the amount then stays identical after every sync) or activity after the last sync (then it changes). A difference that stays the same after a fresh sync is the first kind');
 }
 
 // ================================================================ E. prices
@@ -320,7 +320,11 @@ head('F. Dune aggregate cross-check (counts and exact raw sums)');
       const ex = monitored.find((m) => m.address === d.address)?.exchange ?? d.address;
       check(`${ex} ${d.direction}: Dune ${d.n} transfers / ${d.raw_sum} raw = ours`, !!mine && mine.n === Number(d.n) && mine.raw_sum === d.raw_sum, mine ? `ours ${mine.n} / ${mine.raw_sum}` : 'missing in our database');
     }
-    check('no monitored direction exists in our database that Dune does not report', dbT.every((x) => T.rows.some((d) => d.direction === x.direction && d.address === x.address)));
+    // Only addresses that were part of the saved Dune query can be compared; an exchange added later is simply not in that output.
+    const queried = new Set(String(T.params.exchange_addresses ?? '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean));
+    const notQueried = [...new Set(dbT.filter((x) => !queried.has(x.address)).map((x) => monitored.find((m) => m.address === x.address)?.exchange ?? x.address))];
+    if (notQueried.length) info(`not part of the saved Dune check (added after it was run): ${notQueried.join(', ')}`, 'they are verified against the chain instead (section C and the full per-transfer check)');
+    check('no monitored direction exists in our database that Dune does not report', dbT.filter((x) => queried.has(x.address)).every((x) => T.rows.some((d) => d.direction === x.direction && d.address === x.address)));
     const dbS = await q(`select version, pool_address pool, count(*)::int n, count(*) filter (where side='BUY')::int buys, sum(deod_amount_raw)::text deod_raw_sum from dex_swaps where block_time >= $1 and block_time < $2 group by 1, 2 order by 1`, [start, end]);
     for (const d of S.rows) {
       const mine = dbS.find((x) => x.pool === d.pool);
