@@ -1,6 +1,6 @@
 # Stops DEODScan: the dashboard, the API, the worker and the database. Safe to run when nothing is running.
 #
-#   stop.cmd
+#   .\stop.cmd
 
 $ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent $PSScriptRoot
@@ -13,7 +13,7 @@ function Kill-Tree($procId) {
   $script:killed++
 }
 
-# The windows opened by run.cmd (closing a window stops what runs in it)
+# The windows opened by .\run.cmd (closing a window stops what runs in it)
 Get-CimInstance Win32_Process -Filter "Name='cmd.exe'" | Where-Object { $_.CommandLine -match 'title DEODScan' } | ForEach-Object { Kill-Tree $_.ProcessId }
 
 # Anything still listening on the dashboard or API ports (for example a copy started another way)

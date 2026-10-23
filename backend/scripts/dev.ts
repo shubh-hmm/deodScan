@@ -45,7 +45,7 @@ const root = backendRoot();
 const lockFile = process.env.DEV_LOCK_FILE ?? resolve(root, '.dev.lock');
 const lock = acquireLock(lockFile);
 if (!lock.ok) {
-  console.error(`\nThe backend is already running from this folder (process ${lock.pid}).\nStop that one first: press Ctrl+C in its terminal, or run stop.cmd from the project folder.\n`);
+  console.error(`\nThe backend is already running from this folder (process ${lock.pid}).\nStop that one first: press Ctrl+C in its terminal, or run .\\stop.cmd from the project folder.\n`);
   process.exit(1);
 }
 
@@ -250,15 +250,15 @@ try {
     await startApi();
     if (!shuttingDown) startWorker();
     if (!shuttingDown && owned.length === 0) {
-      // Everything was already running (for example started by run.cmd): there is nothing for this terminal to watch or stop, so say so and
+      // Everything was already running (for example started by .\\run.cmd): there is nothing for this terminal to watch or stop, so say so and
       // exit cleanly instead of leaving the process to fall out of its event loop with a confusing Node warning.
       console.log(`
-  DEODScan backend was ALREADY RUNNING (started earlier, for example by run.cmd), so nothing new was started here.
+  DEODScan backend was ALREADY RUNNING (started earlier, for example by .\\run.cmd), so nothing new was started here.
     Database  ${db.host}:${db.port}/${db.database}
     API       http://${apiHost}:${apiPort}
     Worker    ${workerRunningElsewhere ? 'on (already running)' : 'off'}
-  It keeps running in the background. To stop it: run stop.cmd in the project folder.
-  To run it in this terminal instead: run stop.cmd first, then npm run dev (or npm run dev:worker) again.
+  It keeps running in the background. To stop it: run .\\stop.cmd in the project folder.
+  To run it in this terminal instead: run .\\stop.cmd first, then npm run dev (or npm run dev:worker) again.
 `);
       releaseLock(lockFile);
       process.exit(0);

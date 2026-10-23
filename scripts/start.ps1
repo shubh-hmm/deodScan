@@ -1,9 +1,9 @@
 # Starts DEODScan: the database, then the API, the dashboard and the daily-sync worker.
 #
-#   run.cmd                  (from the project folder; or double-click it)
-#   run.cmd -NoWorker        everything except the worker (no Dune credits are used)
-#   run.cmd -NoBrowser       do not open the browser
-#   run.cmd -Hidden          run the three services in hidden windows instead of visible ones
+#   .\run.cmd                  (from the project folder; or double-click it)
+#   .\run.cmd -NoWorker        everything except the worker (no Dune credits are used)
+#   .\run.cmd -NoBrowser       do not open the browser
+#   .\run.cmd -Hidden          run the three services in hidden windows instead of visible ones
 #
 # Safe to run twice: anything already running is left alone.
 
@@ -40,7 +40,7 @@ Step 'Database (PostgreSQL on port 5433)'
 $data = Join-Path $root 'backend\.pgdata'
 $pgctl = Join-Path $root 'backend\node_modules\@embedded-postgres\windows-x64\native\bin\pg_ctl.exe'
 if (-not (Test-Path (Join-Path $data 'PG_VERSION'))) {
-  throw "The database has not been created yet. Run 'npm run db:dev' once (wait for 'Postgres running', then press Ctrl+C), then 'npm run db:migrate', then run.cmd again."
+  throw "The database has not been created yet. Run 'npm run db:dev' once (wait for 'Postgres running', then press Ctrl+C), then 'npm run db:migrate', then .\run.cmd again."
 }
 if (Test-Port 5433) {
   Ok 'already running'
@@ -86,5 +86,5 @@ if ($apiUp) { Ok 'API is up' } else { Write-Host '    API did not answer; look a
 if ($webUp) { Ok 'Dashboard is up' } else { Write-Host '    Dashboard did not answer; look at its window.' -ForegroundColor Red }
 
 Write-Host "`nDEODScan is running:  http://localhost:3000" -ForegroundColor Green
-Write-Host '  To stop everything:  stop.cmd   (or close the three DEODScan windows)'
+Write-Host '  To stop everything:  .\stop.cmd   (or close the three DEODScan windows)'
 if ($webUp -and -not $NoBrowser) { Start-Process 'http://localhost:3000' }

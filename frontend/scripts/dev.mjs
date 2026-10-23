@@ -19,7 +19,7 @@ const portOpen = (p, host = '127.0.0.1') => new Promise((done) => {
 });
 
 if (await portOpen(port)) {
-  console.error(`\nSomething is already running on port ${port}. If it is the DEODScan dashboard, just open http://localhost:${port}.\nTo start a new one, stop the old one first: Ctrl+C in its terminal, or run stop.cmd from the project folder.\n`);
+  console.error(`\nSomething is already running on port ${port}. If it is the DEODScan dashboard, just open http://localhost:${port}.\nTo start a new one, stop the old one first: Ctrl+C in its terminal, or run .\\stop.cmd from the project folder.\n`);
   process.exit(1);
 }
 
