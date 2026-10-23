@@ -223,12 +223,16 @@ function findRunningWorkers(): number[] {
   return String(r.stdout ?? '').split(/\r?\n/).map(Number).filter((n) => n > 0 && n !== process.pid);
 }
 
+let workerRunningElsewhere = false;
+
 function startWorker() {
+  const existing = findRunningWorkers();
+  workerRunningElsewhere = existing.length > 0;
   if (!opts.worker) {
+    if (existing.length) { say('worker', `already running (started another way, process ${existing.join(', ')}); this command will not stop it`); return; }
     say('worker', 'OFF, so no Dune credits will be used. To start it too: npm run dev:worker');
     return;
   }
-  const existing = findRunningWorkers();
   if (existing.length) {
     say('worker', `a worker is already running (process ${existing.join(', ')}); not starting a second one`);
     return;
@@ -245,12 +249,26 @@ try {
   else {
     await startApi();
     if (!shuttingDown) startWorker();
+    if (!shuttingDown && owned.length === 0) {
+      // Everything was already running (for example started by run.cmd): there is nothing for this terminal to watch or stop, so say so and
+      // exit cleanly instead of leaving the process to fall out of its event loop with a confusing Node warning.
+      console.log(`
+  DEODScan backend was ALREADY RUNNING (started earlier, for example by run.cmd), so nothing new was started here.
+    Database  ${db.host}:${db.port}/${db.database}
+    API       http://${apiHost}:${apiPort}
+    Worker    ${workerRunningElsewhere ? 'on (already running)' : 'off'}
+  It keeps running in the background. To stop it: run stop.cmd in the project folder.
+  To run it in this terminal instead: run stop.cmd first, then npm run dev (or npm run dev:worker) again.
+`);
+      releaseLock(lockFile);
+      process.exit(0);
+    }
     if (!shuttingDown) {
       console.log(`
   DEODScan backend is running
     Database  ${db.host}:${db.port}/${db.database}
     API       http://${apiHost}:${apiPort}
-    Worker    ${opts.worker ? 'on' : 'off (npm run dev:worker to turn it on)'}
+    Worker    ${opts.worker || workerRunningElsewhere ? 'on' : 'off (npm run dev:worker to turn it on)'}
   Dashboard: in a second terminal, cd ..\\frontend then npm run dev  (http://localhost:3000)
   Stop everything with Ctrl+C.
 `);
