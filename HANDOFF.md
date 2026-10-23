@@ -7,7 +7,7 @@
 > code, config, queries, data, or decisions. Do not wait until the end of the session. Short entries
 > are fine; skipping them is not.
 
-Last updated: 2026-10-22
+Last updated: 2026-10-23
 
 ---
 
@@ -130,6 +130,7 @@ Starting with `pg_ctl` directly, as in the second line, runs the server detached
 
 Format: `YYYY-MM-DD — what changed — files — why/notes`
 
+- 2026-10-23 — **Stack restarted on the new code; FIRST REAL AUTOMATIC UPDATE succeeded.** Owner said "do it now": I ran `scripts/start.ps1 -NoBrowser -Hidden` at 06:00 UTC (database, API :4000, dashboard :3000, worker). Worker: daily sync of 2026-10-22 (transfers 25 fetched/11 new 0.43 credits; swaps 77/30 new 0.18) then, at 06:01:58 UTC, the AUTOMATIC "today so far" update for the 06:00 slot: transfers 6 new 0.48 credits, swaps 39 new 0.02 credits = **0.50 credits**, no errors, 0 new alerts. API now reports usage 1 of 2 used and `auto` times 06:00/14:00 UTC. Total spent this restart about 1.1 credits. The 14:00 UTC (7:30 PM India) slot runs by itself if the worker stays up, unless the button is pressed first (the last use). The worker was started hidden: stop everything with `stop.cmd`; logs in `logs/`.
 - 2026-10-22 — **Correction: "keep call twice a day" meant AUTOMATIC calls; built now.** I had first read it as a cap on button presses (flagged as ambiguous). The worker now updates today's unfinished day by itself twice a day at **06:00 and 14:00 UTC** (11:30 AM and 7:30 PM India time), from the SAME daily budget as the button (`REFRESH_TODAY_MAX_PER_DAY`, 2): automatic and manual updates together never exceed 2 per UTC day. Cost about 0.4 to 1.4 credits each, at most about 3 a day worst case. 0 credits spent building/testing (stand-in update; the live loop test used an invalid Dune key on a throwaway DB).
   - **Code:** `backend/worker/src/autoToday.ts` (`parseTimes`, `autoConfigFromEnv`, `latestSlot`, `autoUpdateCheck`, `startAutoUpdates` = a check every minute, first one 5 s after start), started in `worker/src/index.ts` and stopped/waited for on shutdown; CLI `auto-check [--run]` (dry run by default). Env `AUTO_UPDATE_TODAY` (default true) and `AUTO_UPDATE_TODAY_AT` (default `06:00,14:00`, a bad value falls back with a warning). `GET /api/sync/today` now also returns `auto {enabled, timesUtc}` and the button tooltip shows the times in the viewer's own time zone.
   - **Rule:** at/after a slot, run one update unless something already updated today's data since that slot (a manual press counts), the daily budget is used up, or the last update was under 10 minutes ago; only the most recent missed slot is made up after the worker was off; a failed attempt counts as a use and is not retried until the next slot (Dune may have billed it); "another sync running" just waits for the next minute.
