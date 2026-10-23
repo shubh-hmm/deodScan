@@ -70,7 +70,7 @@ Step 'Worker (daily sync from Dune)'
 if ($NoWorker) {
   Ok 'skipped (-NoWorker)'
 } else {
-  $w = Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -match 'apps[\\/]worker[\\/]src[\\/]index' }
+  $w = Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -match 'worker[\\/]src[\\/]index' }
   if ($w) { Ok 'already running' }
   else {
     Start-Svc 'DEODScan Worker' 'worker'

@@ -22,7 +22,7 @@ foreach ($port in 3000, 4000) {
 }
 
 # The worker has no port: find it by its command line
-Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -match 'apps[\\/]worker[\\/]src[\\/]index' } | ForEach-Object { Kill-Tree $_.ProcessId }
+Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -match 'worker[\\/]src[\\/]index' } | ForEach-Object { Kill-Tree $_.ProcessId }
 Say "stopped $killed process group(s) (dashboard, API, worker)"
 
 # The database: a clean shutdown, so the next start is quick

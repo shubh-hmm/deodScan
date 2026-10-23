@@ -45,7 +45,19 @@ Dashboard (`frontend/.env.local` or the host's settings):
 - The database must not be reachable from the internet either (allow only the API and worker).
 - The dashboard sends `X-Frame-Options: DENY`, `nosniff`, a strict referrer policy and a permissions policy on every page.
 
-## 4. Keep the processes alive
+## 4. Run the production versions (must)
+
+`npm run dev` (both folders), `run.cmd` and `dev:worker` are for this PC: the dashboard runs in development mode there (slower, shows developer
+error details). On the server:
+
+- Dashboard: `cd frontend && npm ci && npm run build && npm run start` (production build, port 3000). Rebuild after every update.
+- API: `cd backend && npm ci && npx tsx api/src/server.ts`. Worker: `npx tsx worker/src/index.ts`. Exactly **one** worker and **one** API per
+  database and per Telegram bot.
+- Install with `npm ci` (exact versions from the lockfiles), never `npm audit fix --omit=dev` on the server: that also removes the tools the
+  build needs.
+- Before each release: `npm audit` in both folders must say 0 vulnerabilities; `npm test` and `npm run typecheck` from the project folder must pass.
+
+## 4b. Keep the processes alive
 
 The API and worker exit with an error after an unexpected crash on purpose, so that a process manager starts a fresh copy. Use one:
 
