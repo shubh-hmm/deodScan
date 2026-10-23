@@ -1,18 +1,20 @@
-# Production-style Postgres. The Node services (api, worker, web) run with `npm run ...` (see README).
+# Production-style MongoDB for a server. The Node services (api, worker, web) run with `npm run ...` (see README).
+# Set MONGODB_URI in backend/.env to mongodb://<user>:<password>@127.0.0.1:27017/deod_monitor?authSource=admin
+# (create the user first, or use MongoDB Atlas instead of running this).
 services:
-  postgres:
-    image: postgres:17
+  mongo:
+    image: mongo:8
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: deod
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-deod}
-      POSTGRES_DB: deod_monitor
+      MONGO_INITDB_ROOT_USERNAME: deod
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?set MONGO_PASSWORD}
     ports:
-      - "5433:5432"
+      - "127.0.0.1:27017:27017"      # reachable from this machine only
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - mongodata:/data/db
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U deod -d deod_monitor"]
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
       interval: 10s
       retries: 5
 volumes:
-  pgdata:
+  mongodata:

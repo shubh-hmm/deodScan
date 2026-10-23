@@ -1,28 +1,17 @@
 // The bot's conversation: access code -> permission for alerts -> alerts. Runs against a THROWAWAY database with a fake Telegram, so nothing
 // real is sent and deod_monitor is never touched. Skipped (and reported as skipped) when no database server is reachable.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import pg from 'pg';
-import { loadEnv } from '@deod/config';
-import { migrate } from '@deod/db';
+import { createScratchDb, nextIds, toDec128 } from '@deod/db';
 import { GLOBAL_FAILS_PER_HOUR, LOCK_MINUTES, MAX_FAILED_ATTEMPTS, handleUpdate, type BotContext } from '../src/telegram/bot.js';
 import type { InlineKeyboard, TelegramApi, TgUpdate } from '../src/telegram/api.js';
 import { syncAlertRules } from '../src/alerts/scan.js';
 
 const CODE = 'correct-horse-battery';
 
-let admin: pg.Client | null = null;
-let baseUrl = '';
-try {
-  baseUrl = loadEnv().DATABASE_URL;
-  admin = new pg.Client({ connectionString: baseUrl, connectionTimeoutMillis: 3000 });
-  await admin.connect();
-} catch {
-  admin = null;
-}
+const scratch = await createScratchDb('deod_bot_test');
 
-describe.skipIf(!admin)('telegram bot conversation', () => {
-  const dbName = `deod_bot_test_${Date.now()}`;
-  let pool: pg.Pool;
+describe.skipIf(!scratch)('telegram bot conversation', () => {
+  const pool = scratch!.db;
   let uid = 0;
 
   interface Out { chat: string; text: string; markup?: InlineKeyboard }
@@ -39,23 +28,20 @@ describe.skipIf(!admin)('telegram bot conversation', () => {
     handleUpdate(ctx, { update_id: ++uid, message: { message_id: uid, chat: { id: chat, type }, from: { username: `user${chat}`, first_name: `U${chat}` }, text } } as TgUpdate);
   const press = (chat: number, data: string) =>
     handleUpdate(ctx, { update_id: ++uid, callback_query: { id: `cb${uid}`, data, from: { id: chat }, message: { message_id: 1, chat: { id: chat, type: 'private' } } } } as TgUpdate);
-  const user = async (chat: number) => (await pool.query(`SELECT status, failed_attempts, locked_until, subscribed_at, authorized_at, username FROM telegram_users WHERE chat_id = $1`, [chat])).rows[0];
+  const user = async (chat: number) => (await pool.collection('telegram_users').findOne({ _id: chat as never }))!;
+  const putAlert = async (dedup: string, amount: string, tx: string, block: number) => pool.collection('alerts').insertOne({
+    _id: (await nextIds(pool, 'alerts')) as never, dedup_key: dedup, rule_code: 'large_transfer', severity: 'high', source: 'exchange_flow', occurred_at: new Date(), exchange: 'mexc', direction: 'IN',
+    amount: toDec128(amount), sender: '0x1ffbdf86dcd09980ee8e2e89a301c5e15f2d49c7', recipient: '0x4982085c9e2f89f2ecb8131eca71afad896e89cb', tx_hash: tx, evt_index: 1, block_number: block, created_at: new Date(),
+  });
   const last = () => out[out.length - 1]!;
   const clear = () => { out = []; deleted = []; answered = []; ctx.recentFails = []; clock = new Date('2026-10-22T12:00:00Z'); };
 
   beforeAll(async () => {
-    await admin!.query(`CREATE DATABASE ${dbName}`);
-    pool = new pg.Pool({ connectionString: baseUrl.replace(/\/[^/]*$/, `/${dbName}`), max: 4 });
-    await migrate(pool);
     await syncAlertRules(pool);
     ctx = { db: pool, api, accessCode: CODE, now: () => clock, recentFails: [] };
   }, 60_000);
 
-  afterAll(async () => {
-    await pool?.end();
-    await admin?.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`);
-    await admin?.end();
-  });
+  afterAll(() => scratch?.drop());
 
   it('asks a stranger for the access code and gives nothing away', async () => {
     clear();
@@ -193,9 +179,7 @@ describe.skipIf(!admin)('telegram bot conversation', () => {
 
   it('the Latest alerts button shows recent alerts with the menu under the last one', async () => {
     clear();
-    await pool.query(
-      `INSERT INTO alerts (dedup_key, rule_code, severity, source, occurred_at, exchange, direction, amount, sender, recipient, tx_hash, evt_index, block_number)
-       VALUES ('x:menu', 'large_transfer', 'high', 'exchange_flow', now(), 'mexc', 'IN', 650000, '0x1ffbdf86dcd09980ee8e2e89a301c5e15f2d49c7', '0x4982085c9e2f89f2ecb8131eca71afad896e89cb', $1, 1, 6)`, [`0x${'ef'.repeat(32)}`]);
+    await putAlert('x:menu', '650000', `0x${'ef'.repeat(32)}`, 6);
     await say(13, CODE); await press(13, 'sub:yes');
     out.length = 0;
     await press(13, 'menu:latest');
@@ -220,9 +204,7 @@ describe.skipIf(!admin)('telegram bot conversation', () => {
 
   it('shows the latest alerts only to people who were let in', async () => {
     clear();
-    await pool.query(
-      `INSERT INTO alerts (dedup_key, rule_code, severity, source, occurred_at, exchange, direction, amount, sender, recipient, tx_hash, evt_index, block_number)
-       VALUES ('x:1', 'large_transfer', 'high', 'exchange_flow', now(), 'mexc', 'IN', 600000, '0x1ffbdf86dcd09980ee8e2e89a301c5e15f2d49c7', '0x4982085c9e2f89f2ecb8131eca71afad896e89cb', $1, 1, 5)`, [`0x${'cd'.repeat(32)}`]);
+    await putAlert('x:1', '600000', `0x${'cd'.repeat(32)}`, 5);
     await say(9, '/latest');                                                            // not let in: treated as a (wrong) code
     expect(out.some((o) => o.text.includes('600,000'))).toBe(false);
     await say(9, CODE);
@@ -239,13 +221,13 @@ describe.skipIf(!admin)('telegram bot conversation', () => {
     await say(-100500, '/start', 'supergroup');
     await say(-100500, CODE, 'group');
     expect(out).toHaveLength(0);
-    expect((await pool.query(`SELECT count(*)::int AS n FROM telegram_users WHERE chat_id = -100500`)).rows[0].n).toBe(0);
+    expect(await pool.collection('telegram_users').countDocuments({ _id: -100500 as never })).toBe(0);
   });
 
   it('stays silent to a revoked person, even with the right code', async () => {
     clear();
     await say(10, CODE);
-    await pool.query(`UPDATE telegram_users SET status = 'blocked' WHERE chat_id = 10`);
+    await pool.collection('telegram_users').updateOne({ _id: 10 as never }, { $set: { status: 'blocked' } });
     out.length = 0;
     await say(10, CODE); await say(10, '/start'); await press(10, 'sub:yes');
     expect(out).toHaveLength(0);

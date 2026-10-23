@@ -1,11 +1,11 @@
 import pino from 'pino';
-import type pg from 'pg';
+import { Decimal128, type Db } from 'mongodb';
 import { loadConfig, loadEnv, monitoredPools } from '@deod/config';
 import { completedDayWindows, normalizeSwap, normalizeTransfer, type SwapContext } from '@deod/core';
 import { DuneClient, duneTimestamp, loadQuery, renderSql } from '@deod/dune';
 import {
-  deriveExchangeFlows, getPool, insertSwaps, insertTransfers, monitoredExchangeAddresses,
-  recordRejections, refreshWalletSummary,
+  deriveExchangeFlows, getDb, insertSwaps, insertTransfers, monitoredExchangeAddresses, nextIds,
+  recordRejections, refreshWalletSummary, toDec128OrNull, withLock,
 } from '@deod/db';
 
 import { scanAlerts } from './alerts/scan.js';
@@ -42,17 +42,18 @@ function client() {
 
 interface WindowResult { fetched: number; inserted: number; duplicate: number; rejected: number; credits: number | null; newest: string | null }
 
-async function runWindow(name: QueryName, mode: SyncMode, start: Date, end: Date): Promise<WindowResult> {
-  const db = getPool();
+async function runWindow(name: QueryName, mode: SyncMode, start: Date, end: Date, startedAt = new Date()): Promise<WindowResult> {
+  const db = getDb();
   const cfg = loadConfig();
-  const { rows: [run] } = await db.query<{ id: string }>(
-    `INSERT INTO sync_runs (query_name, mode, window_start, window_end) VALUES ($1, $2, $3, $4) RETURNING id`,
-    [name, mode, start, end],
-  );
-  await db.query(
-    `INSERT INTO dune_sync_state (query_name, status) VALUES ($1, 'running')
-     ON CONFLICT (query_name) DO UPDATE SET status = 'running', updated_at = now()`,
-    [name],
+  const runId = await nextIds(db, 'sync_runs');
+  await db.collection('sync_runs').insertOne({
+    _id: runId as never, query_name: name, mode, window_start: start, window_end: end, started_at: startedAt, finished_at: null, status: 'running',
+    execution_id: null, rows_fetched: null, rows_inserted: null, rows_duplicate: null, rows_rejected: null, credits: null, error: null,
+  });
+  await db.collection('dune_sync_state').updateOne(
+    { _id: name as never },
+    { $set: { query_name: name, status: 'running', updated_at: new Date() }, $setOnInsert: { credits_total: Decimal128.fromString('0') } },
+    { upsert: true },
   );
   const wlog = log.child({ query: name, mode, start: start.toISOString(), end: end.toISOString() });
   wlog.info('dune window start');
@@ -117,27 +118,27 @@ async function runWindow(name: QueryName, mode: SyncMode, start: Date, end: Date
     const duplicate = valid - inserted;
     if (duplicate > 0) wlog.info({ duplicate }, 'duplicate rows skipped');
 
-    await db.query(
-      `UPDATE sync_runs SET finished_at = now(), status = 'ok', execution_id = $2, rows_fetched = $3,
-         rows_inserted = $4, rows_duplicate = $5, rows_rejected = $6, credits = $7 WHERE id = $1`,
-      [run!.id, result.executionId, result.rows.length, inserted, duplicate, rejected.length, result.creditsUsed],
-    );
-    // synced_until only moves forward, so a re-run of an old window never rewinds the checkpoint.
-    await db.query(
-      `UPDATE dune_sync_state SET status = 'ok', error = NULL, last_successful_execution = $2,
-         last_block_time = GREATEST(last_block_time, $3::timestamptz),
-         synced_until = CASE WHEN $6 THEN GREATEST(synced_until, $4::timestamptz) ELSE synced_until END, last_sync_at = now(),
-         credits_total = credits_total + coalesce($5::numeric, 0), updated_at = now()
-       WHERE query_name = $1`,
-      [name, result.executionId, newest, end, result.creditsUsed, mode !== 'today' && mode !== 'today_auto'],
-    );
+    await db.collection('sync_runs').updateOne({ _id: runId as never }, {
+      $set: {
+        finished_at: new Date(), status: 'ok', execution_id: result.executionId, rows_fetched: result.rows.length, rows_inserted: inserted,
+        rows_duplicate: duplicate, rows_rejected: rejected.length, credits: toDec128OrNull(result.creditsUsed),
+      },
+    });
+    // synced_until only moves forward ($max), so a re-run of an old window never rewinds the checkpoint. 'today' updates never move it.
+    const moveCheckpoint = mode !== 'today' && mode !== 'today_auto';
+    const forward: Record<string, Date> = { ...(newest ? { last_block_time: new Date(newest) } : {}), ...(moveCheckpoint ? { synced_until: end } : {}) };
+    await db.collection('dune_sync_state').updateOne({ _id: name as never }, {
+      $set: { status: 'ok', error: null, last_successful_execution: result.executionId, last_sync_at: new Date(), updated_at: new Date() },
+      ...(Object.keys(forward).length ? { $max: forward } : {}),
+      ...(result.creditsUsed ? { $inc: { credits_total: toDec128OrNull(result.creditsUsed)! } } : {}),
+    });
     wlog.info({ fetched: result.rows.length, inserted, duplicate, rejected: rejected.length, credits: result.creditsUsed }, 'dune window done');
     return { fetched: result.rows.length, inserted, duplicate, rejected: rejected.length, credits: result.creditsUsed, newest };
   } catch (err) {
     const message = err instanceof Error ? `${err.message}${'body' in err && err.body ? ' ' + JSON.stringify(err.body) : ''}` : String(err);
     wlog.error({ err: message }, 'dune window failed');
-    await db.query(`UPDATE sync_runs SET finished_at = now(), status = 'error', error = $2 WHERE id = $1`, [run!.id, message]);
-    await db.query(`UPDATE dune_sync_state SET status = 'error', error = $2, updated_at = now() WHERE query_name = $1`, [name, message]);
+    await db.collection('sync_runs').updateOne({ _id: runId as never }, { $set: { finished_at: new Date(), status: 'error', error: message } });
+    await db.collection('dune_sync_state').updateOne({ _id: name as never }, { $set: { status: 'error', error: message, updated_at: new Date() } });
     throw err;
   }
 }
@@ -167,22 +168,20 @@ async function postProcess() {
  * from the last completed window (backfill_cursor), so a crash at 70% continues from there.
  */
 export async function backfill(name: QueryName, from: Date, to: Date, windowDays: number) {
-  const db = getPool();
-  await db.query(`INSERT INTO dune_sync_state (query_name) VALUES ($1) ON CONFLICT DO NOTHING`, [name]);
-  const { rows } = await db.query<{ backfill_from: Date | null; backfill_cursor: Date | null }>(
-    'SELECT backfill_from, backfill_cursor FROM dune_sync_state WHERE query_name = $1', [name],
-  );
-  const prev = rows[0];
+  const db = getDb();
+  const state = db.collection('dune_sync_state');
+  await state.updateOne({ _id: name as never }, { $setOnInsert: { query_name: name, status: 'idle', credits_total: Decimal128.fromString('0'), updated_at: new Date() } }, { upsert: true });
+  const prev = await state.findOne({ _id: name as never }) as { backfill_from?: Date | null; backfill_cursor?: Date | null } | null;
   const sameRun = prev?.backfill_from?.getTime() === from.getTime() && prev.backfill_cursor;
-  let cursor = sameRun && prev.backfill_cursor! > from && prev.backfill_cursor! < to ? prev.backfill_cursor! : from;
+  let cursor = sameRun && prev!.backfill_cursor! > from && prev!.backfill_cursor! < to ? prev!.backfill_cursor! : from;
   if (cursor !== from) log.info({ query: name, resumeFrom: cursor.toISOString() }, 'resuming backfill from checkpoint');
-  else await db.query('UPDATE dune_sync_state SET backfill_from = $2, backfill_cursor = $2 WHERE query_name = $1', [name, from]);
+  else await state.updateOne({ _id: name as never }, { $set: { backfill_from: from, backfill_cursor: from } });
 
   const totals = { fetched: 0, inserted: 0, duplicate: 0, rejected: 0, credits: 0 };
   while (cursor < to) {
     const end = new Date(Math.min(cursor.getTime() + windowDays * DAY, to.getTime()));
     const r = await runWindow(name, 'backfill', cursor, end);
-    await db.query('UPDATE dune_sync_state SET backfill_cursor = $2 WHERE query_name = $1', [name, end]);
+    await state.updateOne({ _id: name as never }, { $set: { backfill_cursor: end } });
     totals.fetched += r.fetched; totals.inserted += r.inserted; totals.duplicate += r.duplicate;
     totals.rejected += r.rejected; totals.credits += r.credits ?? 0;
     cursor = end;
@@ -202,10 +201,8 @@ let stopRequested = false;
 export function requestStop() { stopRequested = true; }
 
 export async function syncCompletedDays(name: QueryName, now = new Date()) {
-  const { rows } = await getPool().query<{ synced_until: Date | null }>(
-    'SELECT synced_until FROM dune_sync_state WHERE query_name = $1', [name],
-  );
-  const syncedUntil = rows[0]?.synced_until;
+  const state = await getDb().collection('dune_sync_state').findOne({ _id: name as never }) as { synced_until?: Date | null } | null;
+  const syncedUntil = state?.synced_until;
   if (!syncedUntil) throw new Error(`${name}: no checkpoint yet; run a backfill first`);
   const windows = completedDayWindows(syncedUntil, now, SETTLE_MS);
   if (!windows.length) log.info({ query: name, syncedUntil: syncedUntil.toISOString() }, 'no completed day to sync yet');
@@ -238,11 +235,10 @@ export const TODAY_MAX_PER_DAY = (() => { const n = Math.floor(Number(process.en
 
 export interface TodayUsage { used: number; max: number; remaining: number }
 
-export async function todayUsage(now = new Date(), db: pg.Pool = getPool()): Promise<TodayUsage> {
+export async function todayUsage(now = new Date(), db: Db = getDb()): Promise<TodayUsage> {
   const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   // One use starts one run per query, so counting the first query's runs counts the uses.
-  const { rows } = await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM sync_runs WHERE mode = 'today' AND query_name = $1 AND started_at >= $2`, [QUERIES[0], dayStart]);
-  const used = rows[0]?.n ?? 0;
+  const used = await db.collection('sync_runs').countDocuments({ mode: 'today', query_name: QUERIES[0], started_at: { $gte: dayStart } });
   return { used, max: TODAY_MAX_PER_DAY, remaining: Math.max(0, TODAY_MAX_PER_DAY - used) };
 }
 
@@ -253,9 +249,9 @@ export class SyncLimitError extends Error {
 }
 
 /** Seconds until "Update today" may run again (0 = now). Based on the last 'today' run recorded in the database. */
-export async function todayCooldownSeconds(now = new Date(), db: pg.Pool = getPool()): Promise<number> {
-  const { rows } = await db.query<{ t: Date | null }>(`SELECT max(started_at) AS t FROM sync_runs WHERE mode IN ('today', 'today_auto')`);
-  const last = rows[0]?.t;
+export async function todayCooldownSeconds(now = new Date(), db: Db = getDb()): Promise<number> {
+  const latest = await db.collection('sync_runs').find({ mode: { $in: ['today', 'today_auto'] } }, { projection: { started_at: 1 } }).sort({ started_at: -1 }).limit(1).next();
+  const last = (latest?.started_at as Date | undefined) ?? null;
   return last ? Math.max(0, Math.ceil(TODAY_COOLDOWN_SECONDS - (now.getTime() - last.getTime()) / 1000)) : 0;
 }
 
@@ -282,7 +278,7 @@ export async function syncToday(now = new Date(), source: 'manual' | 'auto' = 'm
     if (end.getTime() - start.getTime() < 60_000) throw new Error('too early: the UTC day has just started, try again in a minute');
     const totals = { inserted: 0, credits: 0, from: start.toISOString(), to: end.toISOString() };
     for (const q of QUERIES) {
-      const r = await runWindow(q, source === 'auto' ? 'today_auto' : 'today', start, end);
+      const r = await runWindow(q, source === 'auto' ? 'today_auto' : 'today', start, end, now);
       totals.inserted += r.inserted; totals.credits += r.credits ?? 0;
     }
     await postProcess();
@@ -290,22 +286,9 @@ export async function syncToday(now = new Date(), source: 'manual' | 'auto' = 'm
   });
 }
 
-const SYNC_LOCK_KEY = 0x0de0d; // arbitrary constant shared by every process that syncs
-
 export class SyncBusyError extends Error {}
 
-/** Cluster-wide mutex (Postgres advisory lock) so the worker, CLI and admin API never sync concurrently. */
+/** Cluster-wide mutex (a lease document in the database) so the worker, CLI and admin API never sync concurrently. */
 export async function withSyncLock<T>(fn: () => Promise<T>): Promise<T> {
-  const client = await getPool().connect();
-  try {
-    const { rows } = await client.query<{ ok: boolean }>('SELECT pg_try_advisory_lock($1) AS ok', [SYNC_LOCK_KEY]);
-    if (!rows[0]?.ok) throw new SyncBusyError('another sync is already running');
-    try {
-      return await fn();
-    } finally {
-      await client.query('SELECT pg_advisory_unlock($1)', [SYNC_LOCK_KEY]);
-    }
-  } finally {
-    client.release();
-  }
+  return withLock(getDb(), 'sync', () => new SyncBusyError('another sync is already running'), fn);
 }

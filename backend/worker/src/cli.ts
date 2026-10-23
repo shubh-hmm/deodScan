@@ -7,7 +7,7 @@
 //   npx tsx worker/src/cli.ts telegram-test   (one TEST message to everyone subscribed; not an alert)
 //   npx tsx worker/src/cli.ts telegram-users [--revoke <chat_id> | --restore <chat_id>]   (who is allowed in)
 //   npm run sync -- daily        (fetch every completed UTC day not yet synced; never the current day)
-import { closePool, getPool, migrate, seedFromConfig } from '@deod/db';
+import { closeDb, getDb, migrate, seedFromConfig } from '@deod/db';
 import { scanAlerts } from './alerts/scan.js';
 import { apiFromEnv, notifyPending } from './alerts/notify.js';
 import { autoConfigFromEnv, autoUpdateCheck } from './autoToday.js';
@@ -33,7 +33,7 @@ function parseDate(s: string | undefined, fallback?: Date): Date {
 
 const cmd = process.argv[2];
 try {
-  await migrate(getPool());
+  await migrate(getDb());
   await seedFromConfig();
   if (cmd === 'backfill') {
     const from = parseDate(arg('from'));
@@ -53,7 +53,7 @@ try {
     log.info({ daysFetched: days }, days ? 'daily sync complete' : 'nothing to sync: no new completed day');
   } else if (cmd === 'alerts') {
     // Reads only the database: no Dune call, no credits. --rescan re-examines the last days; existing alerts are never duplicated.
-    const r = await scanAlerts(getPool(), { rescan: process.argv.includes('--rescan') });
+    const r = await scanAlerts(getDb(), { rescan: process.argv.includes('--rescan') });
     log.info(r, 'alert scan complete');
     try { log.info(await notifyPending(), 'alert notifications'); }
     catch (e) { log.warn({ err: e instanceof Error ? e.message : String(e) }, 'alerts were scanned and stored; sending to Telegram failed'); }
@@ -62,7 +62,7 @@ try {
     // unless you add --run (which then performs the update if it is due).
     const cfg = autoConfigFromEnv();
     const real = process.argv.includes('--run');
-    const r = await autoUpdateCheck(new Date(), cfg, getPool(), real ? (n: Date) => syncToday(n, 'auto') : async () => undefined);
+    const r = await autoUpdateCheck(new Date(), cfg, getDb(), real ? (n: Date) => syncToday(n, 'auto') : async () => undefined);
     log.info({ enabled: cfg.enabled, timesUtc: cfg.slots.map((s) => `${String(s.hour).padStart(2, '0')}:${String(s.minute).padStart(2, '0')}`), warning: cfg.warning }, 'automatic update settings');
     console.log(r.ran ? (real ? `Updated now: ${r.reason}` : `Dry run: an update is DUE now (${r.reason}). Add --run to perform it (spends Dune credits).`) : `Nothing to do now: ${r.reason}`);
   } else if (cmd === 'ask-check') {
@@ -76,7 +76,7 @@ try {
     if (!ok) console.log(models.filter((m) => /^(gpt|o\d|chatgpt)/.test(m)).join('\n'));
     const question = arg('question');
     if (ok && question) {
-      const r = await createAsk(getPool()).ask(question);
+      const r = await createAsk(getDb()).ask(question);
       console.log(`\nAnswer (${r.verified ? 'every figure checked against your data' : 'WITHHELD: a figure could not be checked'}):\n${r.answer}`);
       console.log(`\nTools used: ${r.data.map((d) => `${d.tool}${d.error ? ' (error)' : ''}`).join(', ') || 'none'}`);
       log.info({ ...r.usage, remainingToday: r.remainingToday }, 'tokens used');
@@ -93,16 +93,17 @@ try {
     // Sends one clearly marked TEST message to everyone who is subscribed. It is not an alert: nothing is stored and no alert is created.
     const api = apiFromEnv();
     if (!api) throw new Error('TELEGRAM_BOT_TOKEN is not set in backend/.env');
-    const { rows } = await getPool().query(`SELECT chat_id::text AS chat_id FROM telegram_users WHERE status = 'subscribed'`);
-    for (const r of rows) await api.sendMessage(r.chat_id, 'TEST from DEODScan: alert delivery works. This is only a test, no real alert was triggered.');
+    const rows = await getDb().collection('telegram_users').find({ status: 'subscribed' }).toArray();
+    for (const r of rows) await api.sendMessage(String(r._id), 'TEST from DEODScan: alert delivery works. This is only a test, no real alert was triggered.');
     log.info({ recipients: rows.length }, 'test message sent');
   } else if (cmd === 'telegram-users') {
     // Lists the people who started the bot. --revoke <chat_id> turns one away for good (the bot ignores them); --restore <chat_id> undoes it.
     const revoke = arg('revoke'), restore = arg('restore');
-    if (revoke) await getPool().query(`UPDATE telegram_users SET status = 'blocked', subscribed_at = NULL, updated_at = now() WHERE chat_id = $1`, [revoke]);
-    if (restore) await getPool().query(`UPDATE telegram_users SET status = 'new', failed_attempts = 0, locked_until = NULL, updated_at = now() WHERE chat_id = $1 AND status = 'blocked'`, [restore]);
-    const { rows } = await getPool().query(`SELECT chat_id::text AS chat_id, username, first_name, status, authorized_at, subscribed_at FROM telegram_users ORDER BY created_at`);
-    console.table(rows.map((r) => ({ chat_id: r.chat_id, username: r.username ?? '', name: r.first_name ?? '', status: r.status, allowed: r.authorized_at?.toISOString().slice(0, 16) ?? '', alerts_since: r.subscribed_at?.toISOString().slice(0, 16) ?? '' })));
+    const users = getDb().collection('telegram_users');
+    if (revoke) await users.updateOne({ _id: Number(revoke) as never }, { $set: { status: 'blocked', subscribed_at: null, updated_at: new Date() } });
+    if (restore) await users.updateOne({ _id: Number(restore) as never, status: 'blocked' }, { $set: { status: 'new', failed_attempts: 0, locked_until: null, updated_at: new Date() } });
+    const rows = await users.find().sort({ created_at: 1 }).toArray();
+    console.table(rows.map((r) => ({ chat_id: String(r._id), username: r.username ?? '', name: r.first_name ?? '', status: r.status, allowed: r.authorized_at?.toISOString().slice(0, 16) ?? '', alerts_since: r.subscribed_at?.toISOString().slice(0, 16) ?? '' })));
   } else if (cmd === 'today') {
     const r = await syncToday();
     log.info(r, 'today so far fetched; the unfinished day is stored, the daily checkpoint is unchanged');
@@ -112,10 +113,10 @@ try {
   }
 } catch (err) {
   const e = err as Error & { code?: string; errors?: Error[] };
-  // A refused database connection arrives as an AggregateError with an empty message; say what it means.
-  const refused = e.code === 'ECONNREFUSED' || e.errors?.some((x) => (x as { code?: string }).code === 'ECONNREFUSED');
+  // A database that cannot be reached shows up as a server-selection error (MongoDB) or a refused connection; say what it means.
+  const refused = e.name === 'MongoServerSelectionError' || e.code === 'ECONNREFUSED' || e.errors?.some((x) => (x as { code?: string }).code === 'ECONNREFUSED');
   log.error({ err: e.message || e.code || String(err) }, refused ? 'sync command failed: the database is not running. Start it first with npm run dev in another terminal' : 'sync command failed');
   process.exitCode = 1;
 } finally {
-  await closePool();
+  await closeDb();
 }

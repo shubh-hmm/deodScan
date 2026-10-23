@@ -10,7 +10,8 @@
   "scripts": {
     "dev": "tsx scripts/dev.ts",
     "dev:worker": "tsx scripts/dev.ts --worker",
-    "db:dev": "node scripts/dev-postgres.mjs",
+    "db:copy-from-postgres": "tsx scripts/postgres-to-mongo.ts",
+    "db:copy-to": "tsx scripts/mongo-copy.ts",
     "db:migrate": "tsx packages/db/src/cli-migrate.ts",
     "worker": "tsx worker/src/index.ts",
     "sync": "tsx worker/src/cli.ts",
@@ -22,8 +23,10 @@
   },
   "devDependencies": {
     "@types/node": "^26.6.4",
-    "@types/pg": "^8.23.1",
     "embedded-postgres": "^18.4.0-beta.17",
+    "@types/pg": "^8.23.1",
+    "mongodb-memory-server": "^11.3.0",
+    "pg": "^8.23.1",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vitest": "^5.0.3"
@@ -33,8 +36,8 @@
     "decimal.js": "^10.6.0",
     "dotenv": "^18.0.5",
     "fastify": "^5.12.5",
+    "mongodb": "^7.7.0",
     "openai": "^7.42.0",
-    "pg": "^8.23.1",
     "pino": "^10.3.1",
     "yaml": "^2.9.1",
     "zod": "^4.6.5"

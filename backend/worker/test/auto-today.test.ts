@@ -1,9 +1,7 @@
 // Automatic updates of today's data: when they are due, how they share the daily budget with the button, and that they never run twice for one
 // time slot. The update itself is replaced by a stand-in, so nothing here calls Dune. Runs on a THROWAWAY database; skipped when none is reachable.
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import pg from 'pg';
-import { loadEnv } from '@deod/config';
-import { migrate } from '@deod/db';
+import { afterAll, describe, expect, it } from 'vitest';
+import { addSyncRuns, createScratchDb } from '@deod/db';
 import { SyncBusyError } from '../src/sync.js';
 import { autoConfigFromEnv, autoUpdateCheck, latestSlot, parseTimes, type AutoConfig } from '../src/autoToday.js';
 
@@ -33,40 +31,19 @@ describe('the schedule setting', () => {
   });
 });
 
-let admin: pg.Client | null = null;
-let baseUrl = '';
-try {
-  baseUrl = loadEnv().DATABASE_URL;
-  admin = new pg.Client({ connectionString: baseUrl, connectionTimeoutMillis: 3000 });
-  await admin.connect();
-} catch {
-  admin = null;
-}
+const scratch = await createScratchDb('deod_auto_test');
 
-describe.skipIf(!admin)('when an automatic update is due', () => {
-  const dbName = `deod_auto_test_${Date.now()}`;
-  let pool: pg.Pool;
+describe.skipIf(!scratch)('when an automatic update is due', () => {
+  const pool = scratch!.db;
   const cfg: AutoConfig = { enabled: true, slots: parseTimes('06:00,14:00')!, warning: null };
-  const record = async (at: string, mode = 'today_auto') => {      // one update = one run per query; 'today' = a button press, 'today_auto' = the schedule
-    for (const q of ['exchange_transfers', 'pancakeswap_swaps']) await pool.query(`INSERT INTO sync_runs (query_name, mode, window_start, window_end, started_at, status) VALUES ($1, $3, $2, $2, $2, 'ok')`, [q, at, mode]);
-  };
-  const clear = () => pool.query('DELETE FROM sync_runs');
+  const record = (at: string, mode = 'today_auto') => addSyncRuns(pool, at, mode);   // one update = one run per query; 'today' = a button press, 'today_auto' = the schedule
+  const clear = () => pool.collection('sync_runs').deleteMany({});
   let calls: Date[] = [];
   const run = (at?: string) => async (now: Date) => { calls.push(now); if (at) await record(at); };
   const check = (when: string, opts: { cfg?: AutoConfig; run?: (n: Date) => Promise<unknown> } = {}) =>
     autoUpdateCheck(new Date(when), opts.cfg ?? cfg, pool, opts.run ?? run());
 
-  beforeAll(async () => {
-    await admin!.query(`CREATE DATABASE ${dbName}`);
-    pool = new pg.Pool({ connectionString: baseUrl.replace(/\/[^/]*$/, `/${dbName}`), max: 3 });
-    await migrate(pool);
-  }, 60_000);
-
-  afterAll(async () => {
-    await pool?.end();
-    await admin?.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`);
-    await admin?.end();
-  });
+  afterAll(() => scratch?.drop());
 
   it('does nothing before the first scheduled time of the day', async () => {
     await clear(); calls = [];

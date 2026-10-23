@@ -3,7 +3,7 @@ import rateLimit from '@fastify/rate-limit';
 import { timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { loadConfig, loadEnv } from '@deod/config';
-import { closePool, getPool, migrate, refreshWalletSummary, deriveExchangeFlows, seedFromConfig } from '@deod/db';
+import { closeDb, getDb, isDuplicateKey, migrate, nextIds, refreshWalletSummary, deriveExchangeFlows, seedFromConfig } from '@deod/db';
 import * as A from '@deod/analytics';
 import { syncAllCompletedDays, syncToday, todayCooldownSeconds, todayUsage, autoConfigFromEnv, SyncLimitError, startBotFromEnv, apiFromEnv, MIN_ACCESS_CODE_LENGTH, SyncBusyError, SyncCooldownError } from '@deod/worker';
 import { createAsk, LlmError } from '@deod/ask';
@@ -12,7 +12,9 @@ import { getPrice } from './price.js';
 
 const env = loadEnv();
 const cfg = loadConfig();
-const db = getPool();
+// A database operation that runs for more than a minute is a mistake or an attack, not a dashboard page: the database cancels it, so one bad
+// request cannot pile up and exhaust the connections.
+const db = getDb({ queryTimeoutMs: 60_000 });
 
 const app = Fastify({
   logger: { level: env.LOG_LEVEL, base: { svc: 'api' } },
@@ -23,10 +25,6 @@ const app = Fastify({
   bodyLimit: 100_000,
   requestTimeout: 150_000,
 });
-
-// A query that runs for more than a minute is a mistake or an attack, not a dashboard page: the database cancels it, so one bad request cannot
-// pile up and exhaust the connection pool. (The SET is queued ahead of the first real query on each new connection.)
-db.on('connect', (client) => { void client.query('SET statement_timeout = 60000').catch(() => {}); });
 
 await app.register(rateLimit, { max: 300, timeWindow: '1 minute' });
 
@@ -46,9 +44,16 @@ function parse<T extends z.ZodTypeAny>(schema: T, input: unknown): z.infer<T> {
   return r.data;
 }
 
+// The short periods end at the newest fetched data (see A.dataAnchor). Looked up at most every 20 s.
+let anchor: { at: number; value: Date | null } = { at: 0, value: null };
+app.addHook('preHandler', async (req) => {
+  if (!req.url.startsWith('/api/') || Date.now() - anchor.at < 20_000) return;
+  anchor = { at: Date.now(), value: await A.dataAnchor(db).catch(() => anchor.value) };
+});
+
 function windowOf(q: unknown) {
   try {
-    return A.resolveWindow(parse(A.RangeQuery, q));
+    return A.resolveWindow(parse(A.RangeQuery, q), new Date(), anchor.value);
   } catch (e) {
     throw new BadRequest((e as Error).message);
   }
@@ -88,7 +93,7 @@ const walletParam = z.object({ address: z.string().regex(/^0x[0-9a-fA-F]{40}$/).
 // Health check for uptime monitors: fails (HTTP 500) when the database does not answer; reports how old the synced data is, which a monitor can
 // alert on (the daily sync stopped) without the API itself being unhealthy.
 app.get('/api/health', { config: { rateLimit: false } }, async () => {
-  await db.query('SELECT 1');
+  await db.command({ ping: 1 });
   const through = await A.dataThrough(db).catch(() => null);
   const ageHours = through ? Math.round((Date.now() - through.getTime()) / 36e5) : null;
   return { ok: true, dataThrough: through ? through.toISOString() : null, dataAgeHours: ageHours, dataStale: ageHours === null || ageHours > 48 };
@@ -248,8 +253,9 @@ app.get('/api/telegram/status', async () => {
     try { name = (await apiFromEnv()?.getMe().then((m) => m.username, () => null)) ?? null; } catch { name = null; }
     botName = { at: Date.now(), name };
   }
-  const { rows: [c] } = await db.query(`SELECT count(*) FILTER (WHERE status IN ('authorized', 'subscribed'))::int AS allowed, count(*) FILTER (WHERE status = 'subscribed')::int AS subscribed FROM telegram_users`);
-  return { configured, botUsername: configured ? botName?.name ?? null : null, allowed: c.allowed as number, subscribed: c.subscribed as number };
+  const users = db.collection('telegram_users');
+  const [allowed, subscribed] = await Promise.all([users.countDocuments({ status: { $in: ['authorized', 'subscribed'] } }), users.countDocuments({ status: 'subscribed' })]);
+  return { configured, botUsername: configured ? botName?.name ?? null : null, allowed, subscribed };
 });
 app.post('/api/watchlist', async (req, reply) => {
   const row = await A.upsertWatched(db, parse(A.WatchInput, req.body));
@@ -333,26 +339,29 @@ app.register(async (admin) => {
   // need a transfer backfill (CLI) because past Dune results only covered previously monitored addresses.
   admin.post('/api/admin/exchange-addresses', async (req, reply) => {
     const a = parse(NewAddress, req.body);
-    const { rows } = await db.query(
-      `INSERT INTO exchange_addresses (exchange, address, label, address_type, source, verified, notes)
-       VALUES ($1, $2, $3, $4, 'admin', $5, $6) ON CONFLICT (chain, address) DO NOTHING RETURNING id`,
-      [a.exchange, a.address, cfg.exchanges[a.exchange]!.name, a.address_type, a.verified, a.notes ?? null],
-    );
-    if (!rows.length) return reply.code(409).send({ error: 'address already exists' });
-    return { ok: true, id: rows[0].id, note: 'Run a transfer backfill to load this address\'s history.' };
+    const id = await nextIds(db, 'exchange_addresses');
+    try {
+      await db.collection('exchange_addresses').insertOne({
+        _id: id as never, exchange: a.exchange, chain: 'bnb', address: a.address, label: cfg.exchanges[a.exchange]!.name, address_type: a.address_type, source: 'admin',
+        verified: a.verified, monitored: true, dune_label: null, notes: a.notes ?? null, created_at: new Date(), updated_at: new Date(),
+      });
+    } catch (e) {
+      if (isDuplicateKey(e)) return reply.code(409).send({ error: 'address already exists' });
+      throw e;
+    }
+    return { ok: true, id, note: "Run a transfer backfill to load this address's history." };
   });
 
   admin.patch('/api/admin/exchange-addresses/:address', async (req, reply) => {
     const { address } = parse(walletParam, req.params);
     const b = parse(z.object({ verified: z.boolean().optional(), monitored: z.boolean().optional() }), req.body);
-    const { rowCount } = await db.query(
-      `UPDATE exchange_addresses SET verified = coalesce($2, verified), monitored = coalesce($3, monitored), updated_at = now()
-       WHERE address = $1`,
-      [address, b.verified ?? null, b.monitored ?? null],
+    const updated = await db.collection('exchange_addresses').updateOne(
+      { address },
+      { $set: { ...(b.verified !== undefined ? { verified: b.verified } : {}), ...(b.monitored !== undefined ? { monitored: b.monitored } : {}), updated_at: new Date() } },
     );
-    if (!rowCount) return reply.code(404).send({ error: 'not found' });
+    if (!updated.matchedCount) return reply.code(404).send({ error: 'not found' });
     if (b.monitored === false) {
-      await db.query('DELETE FROM exchange_flows WHERE exchange_address = $1', [address]);
+      await db.collection('exchange_flows').deleteMany({ exchange_address: address });
     } else {
       await deriveExchangeFlows(db);
     }
@@ -383,7 +392,7 @@ async function shutdown(reason: string, exitCode = 0) {
   app.log.info({ reason }, 'shutting down');
   try { await bot?.stop(); } catch (err) { app.log.error({ err }, 'error while stopping the telegram bot'); }
   try { await app.close(); } catch (err) { app.log.error({ err }, 'error while closing the server'); }
-  await closePool();
+  await closeDb();
   process.exit(exitCode);
 }
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGBREAK'] as const) process.on(sig, () => void shutdown(sig));

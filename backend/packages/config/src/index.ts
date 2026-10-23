@@ -102,7 +102,10 @@ export function loadAlertsConfig(): AlertsConfig {
 
 const EnvSchema = z.object({
   DUNE_API_KEY: z.string().optional(),
-  DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
+  // MongoDB connection string. The default is the local database that `npm run dev` / run.cmd start (port 27018). The database name is the path part.
+  MONGODB_URI: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(1).default('mongodb://127.0.0.1:27018/deod_monitor')),
+  // Only the one-off Postgres -> MongoDB copy (npm run db:copy-from-postgres) reads this; the application itself no longer uses PostgreSQL.
+  DATABASE_URL: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
   ADMIN_TOKEN: z.string().optional(),
   // When set, /api/* (except /api/health and the bearer-protected /api/admin/*) answers only requests with this value in the x-internal-key
   // header. The dashboard server sends it, so the API stays unusable even if its address becomes public. Set the same value in frontend/.env.local.

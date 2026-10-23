@@ -63,16 +63,18 @@ export function releaseLock(file: string, pid = process.pid): void {
   } catch { /* best effort */ }
 }
 
-/** Where DATABASE_URL points, and whether this machine should run that database itself. */
-export function dbTarget(databaseUrl: string) {
-  const u = new URL(databaseUrl);
-  const host = u.hostname;
+/** Where MONGODB_URI points (first host of the list), and whether this machine should run that database itself. */
+export function dbTarget(uri: string) {
+  const m = /^mongodb(?:\+srv)?:\/\/(?:[^@/]*@)?([^/?]+)(?:\/([^?]*))?/.exec(uri);
+  if (!m) throw new Error('MONGODB_URI must look like mongodb://127.0.0.1:27018/deod_monitor');
+  const [hostPart = ''] = m[1]!.split(',');
+  const bracketed = hostPart.startsWith('[');
+  const host = bracketed ? hostPart.slice(0, hostPart.indexOf(']') + 1) : hostPart.split(':')[0]!;
+  const portText = bracketed ? hostPart.slice(hostPart.indexOf(']') + 2) : hostPart.split(':')[1];
   return {
     host,
-    port: Number(u.port || 5432),
-    database: decodeURIComponent(u.pathname.replace(/^\//, '')) || 'postgres',
-    user: decodeURIComponent(u.username || 'postgres'),
-    password: decodeURIComponent(u.password || ''),
+    port: Number(portText || 27017),
+    database: decodeURIComponent(m[2] ?? '') || 'deod_monitor',
     local: ['localhost', '127.0.0.1', '::1', '[::1]'].includes(host),
   };
 }

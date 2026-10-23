@@ -87,7 +87,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <MobileNav />
             <main className="mx-auto max-w-[1600px] px-4 py-6 md:px-6">{children}</main>
             <footer className="mx-auto max-w-[1600px] border-t border-line px-4 py-5 text-xs leading-relaxed text-muted md:px-6">
-              DEODScan · Read-only analytics · On-chain data: Dune (BNB Chain), synced to PostgreSQL · Times in UTC ·
+              DEODScan · Read-only analytics · On-chain data: Dune (BNB Chain), synced to MongoDB · Times in UTC ·
               Live price: <a className="link" href="https://www.coingecko.com/en/coins/decentrawood" target="_blank" rel="noreferrer">CoinGecko</a>{' '}
               (market price, separate from the on-chain data).
             </footer>

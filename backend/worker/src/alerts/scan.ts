@@ -1,10 +1,11 @@
 // Alert scanner: reads the transfers and swaps that are ALREADY in the database, applies the deterministic rules from rules.ts and stores
 // the resulting alerts. It never calls Dune or any other network service (so it can never spend credits) and never needs an AI key.
 //
-// Safe to run any number of times: alerts have a unique dedup_key (INSERT ... ON CONFLICT DO NOTHING), and the cursor in alert_state only
+// Safe to run any number of times: alerts have a unique dedup_key (a unique index; duplicates are skipped), and the cursor in alert_state only
 // decides which rows are worth examining, not whether an alert may exist twice.
-import type pg from 'pg';
-import { getPool } from '@deod/db';
+import type { Db } from 'mongodb';
+import { Decimal } from 'decimal.js';
+import { decStr, getDb, isDuplicateKey, nextIds, toDec128, toDec128OrNull } from '@deod/db';
 import { loadAlertsConfig, type AlertsConfig } from '@deod/config';
 import {
   completeDayRange, flowSpikeAlerts, largeSwapAlerts, largeTransferAlerts, watchedWalletAlerts,
@@ -23,7 +24,7 @@ export interface ScanResult {
 }
 
 /** Copies config/alerts.yaml into alert_rules so every alert can show the rule (and thresholds) that raised it. */
-export async function syncAlertRules(db: pg.Pool | pg.PoolClient, cfg: AlertsConfig = loadAlertsConfig()) {
+export async function syncAlertRules(db: Db, cfg: AlertsConfig = loadAlertsConfig()) {
   const rows: [string, string, string, boolean, string, object][] = [
     ['large_transfer', 'large_transfer', cfg.rules.large_transfer.name, cfg.rules.large_transfer.enabled, cfg.rules.large_transfer.severity, { min_amount: cfg.rules.large_transfer.min_amount }],
     ['large_swap', 'large_swap', cfg.rules.large_swap.name, cfg.rules.large_swap.enabled, cfg.rules.large_swap.severity, { min_amount: cfg.rules.large_swap.min_amount }],
@@ -32,133 +33,134 @@ export async function syncAlertRules(db: pg.Pool | pg.PoolClient, cfg: AlertsCon
     ['watched_wallet', 'watched_wallet', 'Watched wallet activity', true, cfg.watched_wallet.severity, {}],
   ];
   for (const [code, kind, name, enabled, severity, params] of rows) {
-    await db.query(
-      `INSERT INTO alert_rules (code, kind, name, enabled, severity, params) VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT (code) DO UPDATE SET name = $3, enabled = $4, severity = $5, params = $6, updated_at = now()`,
-      [code, kind, name, enabled, severity, JSON.stringify(params)],
-    );
+    await db.collection('alert_rules').updateOne({ _id: code as never }, { $set: { code, kind, name, enabled, severity, params, updated_at: new Date() } }, { upsert: true });
   }
 }
 
 const DAY_MS = 86_400_000;
 
-async function insertAlerts(db: pg.Pool | pg.PoolClient, candidates: AlertCandidate[]) {
+async function insertAlerts(db: Db, candidates: AlertCandidate[]) {
   const inserted: Record<string, number> = {};
   let duplicates = 0;
-  for (const c of candidates) {
-    const { rowCount } = await db.query(
-      `INSERT INTO alerts (dedup_key, rule_code, severity, source, occurred_at, exchange, direction, amount, usd_value, sender, recipient,
-                           wallet_address, tx_hash, evt_index, block_number, details)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-       ON CONFLICT (dedup_key) DO NOTHING`,
-      [c.dedupKey, c.ruleCode, c.severity, c.source, c.occurredAt, c.exchange, c.direction, c.amount, c.usdValue, c.sender, c.recipient,
-        c.walletAddress, c.txHash, c.evtIndex, c.blockNumber, JSON.stringify(c.details)],
-    );
-    if (rowCount) inserted[c.ruleCode] = (inserted[c.ruleCode] ?? 0) + 1;
-    else duplicates++;
+  if (!candidates.length) return { inserted, duplicates };
+  const firstId = await nextIds(db, 'alerts', candidates.length);
+  for (const [i, c] of candidates.entries()) {
+    try {
+      await db.collection('alerts').insertOne({
+        _id: (firstId + i) as never, dedup_key: c.dedupKey, rule_code: c.ruleCode, severity: c.severity, source: c.source, occurred_at: c.occurredAt, exchange: c.exchange,
+        direction: c.direction, amount: toDec128(c.amount), usd_value: toDec128OrNull(c.usdValue), sender: c.sender, recipient: c.recipient, wallet_address: c.walletAddress,
+        tx_hash: c.txHash, evt_index: c.evtIndex, block_number: c.blockNumber, details: c.details, created_at: new Date(),
+      });
+      inserted[c.ruleCode] = (inserted[c.ruleCode] ?? 0) + 1;
+    } catch (e) {
+      if (!isDuplicateKey(e)) throw e;
+      duplicates++;
+    }
   }
   return { inserted, duplicates };
 }
 
+const dayKey = (d: Date) => d.toISOString().slice(0, 10);
+
 /** Per exchange, direction and finished UTC day: the day's total and the average of the preceding days (zeros included). */
-async function loadDayTotals(db: pg.Pool | pg.PoolClient, first: string, last: string, baselineDays: number, minAmount: number): Promise<DayTotal[]> {
-  const from = new Date(Date.parse(`${first}T00:00:00Z`) - baselineDays * DAY_MS).toISOString();
-  const to = new Date(Date.parse(`${last}T00:00:00Z`) + DAY_MS).toISOString();
-  const { rows } = await db.query(
-    `WITH tracked AS (
-       SELECT exchange, min((block_time AT TIME ZONE 'UTC')::date) AS first_day FROM exchange_flows GROUP BY exchange
-     ), per_day AS (
-       SELECT exchange, direction, (block_time AT TIME ZONE 'UTC')::date AS d, sum(amount) AS total
-       FROM exchange_flows WHERE block_time >= $3::timestamptz AND block_time < $4::timestamptz GROUP BY 1, 2, 3
-     ), days AS (
-       SELECT g::date AS d FROM generate_series($1::date, $2::date, interval '1 day') g
-     )
-     SELECT t.exchange, dir.direction, to_char(days.d, 'YYYY-MM-DD') AS day, cur.total::text AS total,
-            LEAST($5::int, GREATEST(days.d - t.first_day, 0)) AS tracked_days,
-            (coalesce((SELECT sum(p.total) FROM per_day p WHERE p.exchange = t.exchange AND p.direction = dir.direction
-                        AND p.d >= days.d - $5::int AND p.d < days.d), 0)
-              / NULLIF(LEAST($5::int, GREATEST(days.d - t.first_day, 0)), 0))::text AS baseline_mean
-     FROM tracked t
-     CROSS JOIN (VALUES ('IN'), ('OUT')) dir(direction)
-     CROSS JOIN days
-     JOIN per_day cur ON cur.exchange = t.exchange AND cur.direction = dir.direction AND cur.d = days.d
-     WHERE days.d >= t.first_day AND cur.total >= $6::numeric
-     ORDER BY days.d, t.exchange, dir.direction`,
-    [first, last, from, to, baselineDays, minAmount],
-  );
-  return rows.map((r) => ({
-    exchange: r.exchange, direction: r.direction, day: r.day, total: r.total, trackedDays: Number(r.tracked_days), baselineMean: r.baseline_mean ?? '0',
-  }));
+async function loadDayTotals(db: Db, first: string, last: string, baselineDays: number, minAmount: number): Promise<DayTotal[]> {
+  const from = new Date(Date.parse(`${first}T00:00:00Z`) - baselineDays * DAY_MS);
+  const to = new Date(Date.parse(`${last}T00:00:00Z`) + DAY_MS);
+  const flows = db.collection('exchange_flows');
+  const [tracked, perDayRows] = await Promise.all([
+    flows.aggregate([{ $group: { _id: '$exchange', first: { $min: '$block_time' } } }]).toArray(),
+    flows.aggregate([
+      { $match: { block_time: { $gte: from, $lt: to } } },
+      { $group: { _id: { exchange: '$exchange', direction: '$direction', day: { $dateToString: { format: '%Y-%m-%d', date: '$block_time', timezone: 'UTC' } } }, total: { $sum: '$amount' } } },
+    ]).toArray(),
+  ]);
+  const perDay = new Map(perDayRows.map((r) => [`${r._id.exchange}|${r._id.direction}|${r._id.day}`, new Decimal(decStr(r.total))]));
+  const out: DayTotal[] = [];
+  const days: string[] = [];
+  for (let t = Date.parse(`${first}T00:00:00Z`); t <= Date.parse(`${last}T00:00:00Z`); t += DAY_MS) days.push(dayKey(new Date(t)));
+  const min = new Decimal(minAmount);
+  for (const day of days) {
+    for (const t of [...tracked].sort((a, b) => (a._id < b._id ? -1 : 1))) {
+      const firstDay = dayKey(t.first as Date);
+      if (day < firstDay) continue;
+      for (const direction of ['IN', 'OUT'] as const) {
+        const cur = perDay.get(`${t._id}|${direction}|${day}`);
+        if (!cur || cur.lt(min)) continue;
+        const dayMs = Date.parse(`${day}T00:00:00Z`);
+        const trackedDays = Math.min(baselineDays, Math.max(Math.round((dayMs - Date.parse(`${firstDay}T00:00:00Z`)) / DAY_MS), 0));
+        let sum = new Decimal(0);
+        for (let k = 1; k <= baselineDays; k++) sum = sum.plus(perDay.get(`${t._id}|${direction}|${dayKey(new Date(dayMs - k * DAY_MS))}`) ?? 0);
+        out.push({ exchange: t._id as string, direction, day, total: decStr(cur), trackedDays, baselineMean: trackedDays ? sum.div(trackedDays).toFixed() : '0' });
+      }
+    }
+  }
+  return out;
 }
+
+const highestId = async (db: Db, collection: string): Promise<number> =>
+  ((await db.collection(collection).find({}, { projection: { _id: 1 } }).sort({ _id: -1 }).limit(1).next())?._id as unknown as number | undefined) ?? 0;
 
 /**
  * One scan. `rescan` forgets the cursors so every recent row is examined again; thanks to the unique dedup_key this can only add
  * alerts that were missing, never duplicate existing ones.
+ *
+ * There is no transaction: the alerts are idempotent (unique dedup_key) and the cursor is written last, so a scan that dies half way is
+ * simply repeated by the next one and creates nothing twice.
  */
-export async function scanAlerts(db: pg.Pool = getPool(), opts: { now?: Date; rescan?: boolean } = {}): Promise<ScanResult> {
+export async function scanAlerts(db: Db = getDb(), opts: { now?: Date; rescan?: boolean } = {}): Promise<ScanResult> {
   const now = opts.now ?? new Date();
   const cfg = loadAlertsConfig();
   const maxAge = cfg.scan.max_alert_age_days;
   const cutoff = new Date(now.getTime() - maxAge * DAY_MS);
-  const client = await db.connect();
   const result: ScanResult = {
     scannedFlows: 0, scannedSwaps: 0, watchedWallets: 0, daysExamined: 0, insufficientHistory: 0, spikeSkippedReason: null, inserted: {}, duplicates: 0,
   };
-  try {
-    await client.query('BEGIN');
-    await syncAlertRules(client, cfg);
-    if (opts.rescan) await client.query(`DELETE FROM alert_state`);
+  await syncAlertRules(db, cfg);
+  if (opts.rescan) await db.collection('alert_state').deleteMany({});
 
-    const state = new Map((await client.query<{ name: string; last_id: string }>(`SELECT name, last_id::text FROM alert_state`)).rows.map((r) => [r.name, Number(r.last_id)]));
-    const flowFrom = state.get('exchange_flows') ?? 0, swapFrom = state.get('dex_swaps') ?? 0;
-    const [{ m: flowMax }] = (await client.query(`SELECT coalesce(max(id), 0)::float8 AS m FROM exchange_flows`)).rows;
-    const [{ m: swapMax }] = (await client.query(`SELECT coalesce(max(id), 0)::float8 AS m FROM dex_swaps`)).rows;
+  const state = new Map((await db.collection('alert_state').find().toArray()).map((r) => [r._id as unknown as string, Number(r.last_id)]));
+  const flowFrom = state.get('exchange_flows') ?? 0, swapFrom = state.get('dex_swaps') ?? 0;
+  const [flowMax, swapMax] = await Promise.all([highestId(db, 'exchange_flows'), highestId(db, 'dex_swaps')]);
 
-    const flows = (await client.query(
-      `SELECT id::float8 AS id, exchange, direction, wallet_address, exchange_address, amount::text AS amount, tx_hash, evt_index,
-              block_number::float8 AS block_number, block_time
-       FROM exchange_flows WHERE id > $1 AND id <= $2 AND block_time >= $3 ORDER BY id`, [flowFrom, flowMax, cutoff])).rows as FlowRow[];
-    const swaps = (await client.query(
-      `SELECT id::float8 AS id, version, pool_address, trader_address, side, deod_amount::text AS deod_amount, usd_value::text AS usd_value,
-              tx_hash, evt_index, block_number::float8 AS block_number, block_time
-       FROM dex_swaps WHERE id > $1 AND id <= $2 AND block_time >= $3 ORDER BY id`, [swapFrom, swapMax, cutoff])).rows as SwapRow[];
-    const watched = (await client.query(
-      `SELECT address, watch, min_amount::text AS min_amount, enabled FROM watched_wallets WHERE enabled`)).rows as WatchedWallet[];
-    result.scannedFlows = flows.length; result.scannedSwaps = swaps.length; result.watchedWallets = watched.length;
+  const flows: FlowRow[] = (await db.collection('exchange_flows').find({ _id: { $gt: flowFrom, $lte: flowMax } as never, block_time: { $gte: cutoff } }).sort({ _id: 1 }).toArray())
+    .map((f) => ({
+      id: f._id as unknown as number, exchange: f.exchange, direction: f.direction, wallet_address: f.wallet_address, exchange_address: f.exchange_address,
+      amount: decStr(f.amount), tx_hash: f.tx_hash, evt_index: f.evt_index, block_number: f.block_number, block_time: f.block_time,
+    }));
+  const swaps: SwapRow[] = (await db.collection('dex_swaps').find({ _id: { $gt: swapFrom, $lte: swapMax } as never, block_time: { $gte: cutoff } }).sort({ _id: 1 }).toArray())
+    .map((s) => ({
+      id: s._id as unknown as number, version: s.version, pool_address: s.pool_address, trader_address: s.trader_address, side: s.side, deod_amount: decStr(s.deod_amount),
+      usd_value: s.usd_value == null ? null : decStr(s.usd_value), tx_hash: s.tx_hash, evt_index: s.evt_index, block_number: s.block_number, block_time: s.block_time,
+    }));
+  const watched: WatchedWallet[] = (await db.collection('watched_wallets').find({ enabled: true }).toArray())
+    .map((w) => ({ address: w._id as unknown as string, watch: w.watch, min_amount: decStr(w.min_amount), enabled: w.enabled }));
+  result.scannedFlows = flows.length; result.scannedSwaps = swaps.length; result.watchedWallets = watched.length;
 
-    const candidates: AlertCandidate[] = [
-      ...largeTransferAlerts(flows, { code: 'large_transfer', ...cfg.rules.large_transfer }, now, maxAge),
-      ...largeSwapAlerts(swaps, { code: 'large_swap', ...cfg.rules.large_swap }, now, maxAge),
-      ...watchedWalletAlerts(flows, swaps, watched, cfg.watched_wallet.severity, 'watched_wallet', now, maxAge),
-    ];
+  const candidates: AlertCandidate[] = [
+    ...largeTransferAlerts(flows, { code: 'large_transfer', ...cfg.rules.large_transfer }, now, maxAge),
+    ...largeSwapAlerts(swaps, { code: 'large_swap', ...cfg.rules.large_swap }, now, maxAge),
+    ...watchedWalletAlerts(flows, swaps, watched, cfg.watched_wallet.severity, 'watched_wallet', now, maxAge),
+  ];
 
-    // Unusual daily flow: only finished UTC days that the sync has fully covered.
-    const spike = cfg.rules.flow_spike;
-    if (spike.enabled) {
-      const { rows: [cp] } = await client.query<{ synced_until: Date | null }>(`SELECT synced_until FROM dune_sync_state WHERE query_name = 'exchange_transfers'`);
-      const range = completeDayRange(now, cp?.synced_until ?? null, maxAge);
-      if (!range) result.spikeSkippedReason = cp?.synced_until ? 'no finished, fully synced day in the alert window' : 'no sync checkpoint yet';
-      else {
-        const days = await loadDayTotals(client, range.first, range.last, spike.baseline_days, spike.min_amount);
-        result.daysExamined = Math.round((Date.parse(range.last) - Date.parse(range.first)) / DAY_MS) + 1;
-        const s = flowSpikeAlerts(days, { code: 'flow_spike', ...spike }, spike.baseline_days);
-        result.insufficientHistory = s.insufficientHistory;
-        candidates.push(...s.alerts);
-      }
+  // Unusual daily flow: only finished UTC days that the sync has fully covered.
+  const spike = cfg.rules.flow_spike;
+  if (spike.enabled) {
+    const cp = (await db.collection('dune_sync_state').findOne({ _id: 'exchange_transfers' as never }))?.synced_until as Date | null | undefined;
+    const range = completeDayRange(now, cp ?? null, maxAge);
+    if (!range) result.spikeSkippedReason = cp ? 'no finished, fully synced day in the alert window' : 'no sync checkpoint yet';
+    else {
+      const days = await loadDayTotals(db, range.first, range.last, spike.baseline_days, spike.min_amount);
+      result.daysExamined = Math.round((Date.parse(range.last) - Date.parse(range.first)) / DAY_MS) + 1;
+      const s = flowSpikeAlerts(days, { code: 'flow_spike', ...spike }, spike.baseline_days);
+      result.insufficientHistory = s.insufficientHistory;
+      candidates.push(...s.alerts);
     }
-
-    const { inserted, duplicates } = await insertAlerts(client, candidates);
-    result.inserted = inserted; result.duplicates = duplicates;
-    for (const [name, id] of [['exchange_flows', flowMax], ['dex_swaps', swapMax]] as const) {
-      await client.query(
-        `INSERT INTO alert_state (name, last_id) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET last_id = GREATEST(alert_state.last_id, $2), updated_at = now()`, [name, id]);
-    }
-    await client.query('COMMIT');
-    return result;
-  } catch (e) {
-    await client.query('ROLLBACK');
-    throw e;
-  } finally {
-    client.release();
   }
+
+  const { inserted, duplicates } = await insertAlerts(db, candidates);
+  result.inserted = inserted; result.duplicates = duplicates;
+  for (const [name, id] of [['exchange_flows', flowMax], ['dex_swaps', swapMax]] as const) {
+    await db.collection('alert_state').updateOne({ _id: name as never }, { $set: { name, updated_at: new Date() }, $max: { last_id: id } }, { upsert: true });
+  }
+  return result;
 }

@@ -1,9 +1,7 @@
 // Alert delivery to Telegram people: message content and the Telegram client are tested with a fake `fetch`; delivery bookkeeping (who gets
 // what, once, retries, caps) runs against a THROWAWAY database with a fake Telegram. Nothing real is ever sent and deod_monitor is untouched.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import pg from 'pg';
-import { loadEnv } from '@deod/config';
-import { migrate } from '@deod/db';
+import { createScratchDb, nextIds, toDec128 } from '@deod/db';
 import { formatAlertMessage, notifyPending, type AlertForMessage } from '../src/alerts/notify.js';
 import { StopRun, TelegramError, telegramApi, type TelegramApi } from '../src/telegram/api.js';
 import { syncAlertRules } from '../src/alerts/scan.js';
@@ -80,19 +78,10 @@ describe('Telegram client', () => {
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 
-let admin: pg.Client | null = null;
-let baseUrl = '';
-try {
-  baseUrl = loadEnv().DATABASE_URL;
-  admin = new pg.Client({ connectionString: baseUrl, connectionTimeoutMillis: 3000 });
-  await admin.connect();
-} catch {
-  admin = null;
-}
+const scratch = await createScratchDb('deod_notify_test');
 
-describe.skipIf(!admin)('alert delivery to people on a throwaway database', () => {
-  const dbName = `deod_notify_test_${Date.now()}`;
-  let pool: pg.Pool;
+describe.skipIf(!scratch)('alert delivery to people on a throwaway database', () => {
+  const pool = scratch!.db;
   let seq = 0;
 
   type Sent = { chat: string; text: string };
@@ -106,32 +95,29 @@ describe.skipIf(!admin)('alert delivery to people on a throwaway database', () =
   };
 
   async function addUser(chat: number, status: 'new' | 'authorized' | 'subscribed' | 'blocked', subscribedAgoMs = 60_000) {
-    await pool.query(`INSERT INTO telegram_users (chat_id, status, subscribed_at) VALUES ($1, $2, $3)
-                      ON CONFLICT (chat_id) DO UPDATE SET status = $2, subscribed_at = $3`, [chat, status, status === 'subscribed' ? new Date(Date.now() - subscribedAgoMs) : null]);
+    await pool.collection('telegram_users').replaceOne({ _id: chat as never }, {
+      chat_id: chat, status, failed_attempts: 0, locked_until: null, authorized_at: null, subscribed_at: status === 'subscribed' ? new Date(Date.now() - subscribedAgoMs) : null,
+      created_at: new Date(), updated_at: new Date(),
+    }, { upsert: true });
   }
   async function addAlert(amount = '600000'): Promise<number> {
     seq += 1;
-    const { rows } = await pool.query(
-      `INSERT INTO alerts (dedup_key, rule_code, severity, source, occurred_at, exchange, direction, amount, sender, recipient, wallet_address, tx_hash, evt_index, block_number)
-       VALUES ($1, 'large_transfer', 'high', 'exchange_flow', now(), 'mexc', 'IN', $2, $3, $4, $3, $5, 1, $6) RETURNING id`,
-      [`t:${seq}`, amount, '0x1ffbdf86dcd09980ee8e2e89a301c5e15f2d49c7', '0x4982085c9e2f89f2ecb8131eca71afad896e89cb', `0x${seq.toString(16).padStart(64, '0')}`, 1000 + seq]);
-    return rows[0].id;
+    const id = await nextIds(pool, 'alerts');
+    await pool.collection('alerts').insertOne({
+      _id: id as never, dedup_key: `t:${seq}`, rule_code: 'large_transfer', severity: 'high', source: 'exchange_flow', occurred_at: new Date(), exchange: 'mexc', direction: 'IN',
+      amount: toDec128(amount), usd_value: null, sender: '0x1ffbdf86dcd09980ee8e2e89a301c5e15f2d49c7', recipient: '0x4982085c9e2f89f2ecb8131eca71afad896e89cb',
+      wallet_address: '0x1ffbdf86dcd09980ee8e2e89a301c5e15f2d49c7', tx_hash: `0x${seq.toString(16).padStart(64, '0')}`, evt_index: 1, block_number: 1000 + seq, details: {}, created_at: new Date(),
+    });
+    return id;
   }
-  const log = async (id: number, chat: number) => (await pool.query(`SELECT status, attempts, error FROM notification_log WHERE alert_id = $1 AND recipient = $2`, [id, String(chat)])).rows[0];
-  const reset = async () => { await pool.query(`DELETE FROM alerts`); await pool.query(`DELETE FROM telegram_users`); };
+  const log = (id: number, chat: number) => pool.collection('notification_log').findOne({ alert_id: id, recipient: String(chat) }, { projection: { status: 1, attempts: 1, error: 1, _id: 0 } });
+  const reset = async () => { await pool.collection('alerts').deleteMany({}); await pool.collection('notification_log').deleteMany({}); await pool.collection('telegram_users').deleteMany({}); };
 
   beforeAll(async () => {
-    await admin!.query(`CREATE DATABASE ${dbName}`);
-    pool = new pg.Pool({ connectionString: baseUrl.replace(/\/[^/]*$/, `/${dbName}`), max: 4 });
-    await migrate(pool);
     await syncAlertRules(pool);
   }, 60_000);
 
-  afterAll(async () => {
-    await pool?.end();
-    await admin?.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`);
-    await admin?.end();
-  });
+  afterAll(() => scratch?.drop());
 
   it('does nothing when the bot is not configured', async () => {
     const r = await notifyPending(pool, null);
@@ -158,8 +144,8 @@ describe.skipIf(!admin)('alert delivery to people on a throwaway database', () =
     expect(r).toMatchObject({ sent: 2, failed: 0, recipients: 2 });
     expect(sent.map((s) => s.chat).sort()).toEqual(['10', '11']);
     expect(sent[0]!.text).toContain('Amount: 700,000 DEOD');
-    expect((await log(id, 10)).status).toBe('sent');
-    expect(await log(id, 12)).toBeUndefined();
+    expect((await log(id, 10))!.status).toBe('sent');
+    expect(await log(id, 12)).toBeNull();
     expect((await notifyPending(pool, api)).sent).toBe(0);
     expect(sent).toHaveLength(2);
   });
@@ -171,7 +157,7 @@ describe.skipIf(!admin)('alert delivery to people on a throwaway database', () =
     const { api, sent } = fake();
     expect((await notifyPending(pool, api)).sent).toBe(0);
     await new Promise((r) => setTimeout(r, 20));
-    await pool.query(`UPDATE telegram_users SET subscribed_at = now() WHERE chat_id = 20`);   // they say yes now
+    await pool.collection('telegram_users').updateOne({ _id: 20 as never }, { $set: { subscribed_at: new Date() } });   // they say yes now
     await new Promise((r) => setTimeout(r, 20));
     await addAlert('600002');
     expect((await notifyPending(pool, api)).sent).toBe(1);
@@ -199,7 +185,7 @@ describe.skipIf(!admin)('alert delivery to people on a throwaway database', () =
     const id = await addAlert();
     const bad = fake({ error: new TelegramError('nope', 400) });
     for (let i = 0; i < 3; i++) await notifyPending(pool, bad.api, { maxAttempts: 3 });
-    expect((await log(id, 40)).attempts).toBe(3);
+    expect((await log(id, 40))!.attempts).toBe(3);
     const good = fake();
     expect((await notifyPending(pool, good.api, { maxAttempts: 3 })).sent).toBe(0);
   });
@@ -210,7 +196,7 @@ describe.skipIf(!admin)('alert delivery to people on a throwaway database', () =
     await addAlert();
     const r = await notifyPending(pool, fake({ error: new TelegramError('Telegram answered 403: Forbidden: bot was blocked by the user', 403) }).api);
     expect(r.failed).toBe(1);
-    const u = (await pool.query(`SELECT status, subscribed_at FROM telegram_users WHERE chat_id = 50`)).rows[0];
+    const u = await pool.collection('telegram_users').findOne({ _id: 50 as never });
     expect(u).toMatchObject({ status: 'authorized', subscribed_at: null });
   });
 

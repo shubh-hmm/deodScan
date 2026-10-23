@@ -2,12 +2,12 @@
 // exactly what the pages show. The model chooses a tool and its arguments; the arguments are validated here and the query is run by our code, so
 // the model never writes SQL and cannot reach anything but these functions. Results are capped (at most 25 rows) before the model sees them.
 import { z } from 'zod';
-import type pg from 'pg';
+import type { Db } from 'mongodb';
 import * as A from '@deod/analytics';
 import { loadConfig } from '@deod/config';
 import type { ToolDef } from './llm.js';
 
-export interface ToolContext { db: pg.Pool; now: Date }
+export interface ToolContext { db: Db; now: Date; anchor?: Date | null }
 
 const Range = z.enum(['1h', '6h', '24h', '7d', '30d', 'all', 'custom']);
 const Period = {
@@ -20,7 +20,7 @@ const Address = z.string().regex(/^0x[0-9a-fA-F]{40}$/).describe('A 42-character
 const Limit = (max = 25, def = 10) => z.number().int().min(1).max(max).default(def).describe(`How many rows (at most ${max}).`);
 
 const windowOf = (a: { range: z.infer<typeof Range>; from?: string; to?: string }, ctx: ToolContext) =>
-  A.resolveWindow(A.RangeQuery.parse({ range: a.range, from: a.from, to: a.to }), ctx.now);
+  A.resolveWindow(A.RangeQuery.parse({ range: a.range, from: a.from, to: a.to }), ctx.now, ctx.anchor ?? null);
 
 const iso = (d: unknown) => (d instanceof Date ? d.toISOString() : d);
 const cleanWindow = (w: A.Window) => ({ range: w.range, from: w.from ? w.from.toISOString() : null, to: w.to.toISOString() });
@@ -43,17 +43,18 @@ export const TOOLS: ToolSpec[] = [
     description: 'What data exists: the last fully synced time, and for every monitored exchange and for swaps the first and last recorded transfer and how many are recorded. Use it to learn the exchange names/slugs, and whenever completeness matters (all-time questions, newer exchanges, "latest" data).',
     args: z.object({}),
     async run(_a, { db }) {
-      const [through, ex, sw] = await Promise.all([
+      const [through, exchanges, perExchange, sw] = await Promise.all([
         A.dataThrough(db),
-        db.query(`SELECT e.slug, e.name, min(f.block_time) AS first_transfer, max(f.block_time) AS last_transfer, count(f.id)::int AS transfers
-                  FROM exchanges e LEFT JOIN exchange_flows f ON f.exchange = e.slug GROUP BY e.slug, e.name ORDER BY e.name`),
-        db.query(`SELECT min(block_time) AS first_swap, max(block_time) AS last_swap, count(*)::int AS swaps FROM dex_swaps`),
+        db.collection('exchanges').find().sort({ name: 1 }).toArray(),
+        db.collection('exchange_flows').aggregate([{ $group: { _id: '$exchange', first_transfer: { $min: '$block_time' }, last_transfer: { $max: '$block_time' }, transfers: { $sum: 1 } } }]).toArray(),
+        db.collection('dex_swaps').aggregate([{ $group: { _id: null, first_swap: { $min: '$block_time' }, last_swap: { $max: '$block_time' }, swaps: { $sum: 1 } } }]).toArray(),
       ]);
+      const stats = new Map(perExchange.map((r) => [r._id as string, r]));
       return {
         data_synced_through_utc: iso(through),
         note: 'Data is synced once per finished UTC day (or when the owner presses Update today). Activity after the last synced time may be missing. Exchanges whose first recorded transfer is recent have no earlier history in this data.',
-        exchanges: ex.rows.map((r) => ({ slug: r.slug, name: r.name, first_transfer: iso(r.first_transfer), last_transfer: iso(r.last_transfer), transfers: r.transfers })),
-        pancakeswap: { first_swap: iso(sw.rows[0].first_swap), last_swap: iso(sw.rows[0].last_swap), swaps: sw.rows[0].swaps },
+        exchanges: exchanges.map((e) => ({ slug: e._id, name: e.name, first_transfer: iso(stats.get(e._id as unknown as string)?.first_transfer ?? null), last_transfer: iso(stats.get(e._id as unknown as string)?.last_transfer ?? null), transfers: stats.get(e._id as unknown as string)?.transfers ?? 0 })),
+        pancakeswap: { first_swap: iso(sw[0]?.first_swap ?? null), last_swap: iso(sw[0]?.last_swap ?? null), swaps: sw[0]?.swaps ?? 0 },
       };
     },
   },

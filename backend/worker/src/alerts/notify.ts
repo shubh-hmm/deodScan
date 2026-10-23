@@ -1,8 +1,8 @@
 // Sends stored alerts to every Telegram user who has been allowed in (entered the access code) AND said yes to alerts. It only reads alerts that
 // already exist and writes one log row per alert and person, so nobody gets the same alert twice. Everything here is optional: with no bot
 // configured nothing happens, and a delivery failure never affects detection or a sync.
-import type pg from 'pg';
-import { getPool } from '@deod/db';
+import type { Db, Document } from 'mongodb';
+import { decStr, decStrOrNull, getDb, nextIds } from '@deod/db';
 import { loadConfig, loadEnv } from '@deod/config';
 import { StopRun, TOKEN_SHAPE, TelegramError, telegramApi, type TelegramApi } from '../telegram/api.js';
 
@@ -12,6 +12,15 @@ export interface AlertForMessage {
   rule_name: string; severity: string; rule_code: string; occurred_at: Date; exchange: string | null; direction: string | null; amount: string;
   usd_value: string | null; sender: string | null; recipient: string | null; wallet_address: string | null; tx_hash: string | null;
   block_number: number | null; details: Record<string, unknown>;
+}
+
+/** A stored alert (database document) plus its rule's name, in the shape formatAlertMessage() takes. */
+export function toAlertForMessage(a: Document, ruleName: string): AlertForMessage {
+  return {
+    rule_name: ruleName, severity: a.severity, rule_code: a.rule_code, occurred_at: a.occurred_at, exchange: a.exchange ?? null, direction: a.direction ?? null,
+    amount: decStr(a.amount), usd_value: decStrOrNull(a.usd_value), sender: a.sender ?? null, recipient: a.recipient ?? null, wallet_address: a.wallet_address ?? null,
+    tx_hash: a.tx_hash ?? null, block_number: a.block_number ?? null, details: a.details ?? {},
+  };
 }
 
 const deod = (v: string) => {
@@ -55,48 +64,58 @@ export interface NotifyResult { sent: number; failed: number; remaining: number;
  * stops the whole run.
  */
 export async function notifyPending(
-  db: pg.Pool = getPool(), api: TelegramApi | null = apiFromEnv(), opts: { maxPerRun?: number; maxAttempts?: number } = {},
+  db: Db = getDb(), api: TelegramApi | null = apiFromEnv(), opts: { maxPerRun?: number; maxAttempts?: number } = {},
 ): Promise<NotifyResult> {
   const result: NotifyResult = { sent: 0, failed: 0, remaining: 0, recipients: 0, skipped: null };
   if (!api) { result.skipped = 'Telegram is not configured (TELEGRAM_BOT_TOKEN)'; return result; }
   const maxPerRun = opts.maxPerRun ?? 20, maxAttempts = opts.maxAttempts ?? 5;
   const cfg = loadConfig();
   const names = (slug: string) => cfg.exchanges[slug]?.name ?? slug;
+  const log = db.collection('notification_log');
 
-  const { rows: users } = await db.query(`SELECT chat_id::text AS chat_id, subscribed_at FROM telegram_users WHERE status = 'subscribed' ORDER BY chat_id`);
+  const users = await db.collection('telegram_users').find({ status: 'subscribed' }).sort({ _id: 1 }).toArray();
   result.recipients = users.length;
+  const ruleNames = new Map((await db.collection('alert_rules').find().toArray()).map((r) => [r._id as unknown as string, r.name as string]));
   for (const u of users) {
-    const pending = `FROM alerts a JOIN alert_rules r ON r.code = a.rule_code
-       WHERE a.created_at >= $1
-         AND NOT EXISTS (SELECT 1 FROM notification_log n WHERE n.alert_id = a.id AND n.channel = 'telegram' AND n.recipient = $2 AND (n.status = 'sent' OR n.attempts >= $3))`;
-    const { rows } = await db.query(
-      `SELECT a.id, a.occurred_at, a.exchange, a.direction, a.amount::text AS amount, a.usd_value::text AS usd_value, a.sender, a.recipient, a.wallet_address,
-              a.tx_hash, a.block_number, a.details, a.severity, a.rule_code, r.name AS rule_name ${pending} ORDER BY a.occurred_at, a.id LIMIT $4`,
-      [u.subscribed_at, u.chat_id, maxAttempts, maxPerRun],
-    );
-    const { rows: [{ n: waiting }] } = await db.query(`SELECT count(*)::int AS n ${pending}`, [u.subscribed_at, u.chat_id, maxAttempts]);
+    const chatId = String(u._id);
+    // Alerts created since this person subscribed that have not been delivered to them (sent, or given up after maxAttempts).
+    const [page] = await db.collection('alerts').aggregate([
+      { $match: { created_at: { $gte: u.subscribed_at } } },
+      {
+        $lookup: {
+          from: 'notification_log', as: 'done', let: { id: '$_id' },
+          pipeline: [{ $match: { $expr: { $and: [
+            { $eq: ['$alert_id', '$$id'] }, { $eq: ['$channel', 'telegram'] }, { $eq: ['$recipient', chatId] },
+            { $or: [{ $eq: ['$status', 'sent'] }, { $gte: ['$attempts', maxAttempts] }] },
+          ] } } }, { $limit: 1 }],
+        },
+      },
+      { $match: { done: { $size: 0 } } },
+      { $sort: { occurred_at: 1, _id: 1 } },
+      { $facet: { rows: [{ $limit: maxPerRun }], n: [{ $count: 'n' }] } },
+    ]).toArray();
+    const rows = (page?.rows ?? []) as Document[];
+    const waiting = (page?.n?.[0]?.n as number | undefined) ?? 0;
     result.remaining += waiting - rows.length;
 
+    const key = (alertId: number) => ({ alert_id: alertId, channel: 'telegram', recipient: chatId });
     for (const a of rows) {
+      const alertId = a._id as unknown as number;
       try {
-        await api.sendMessage(u.chat_id, formatAlertMessage(a as AlertForMessage, cfg.chain.explorer_tx_url, names));
-        await db.query(
-          `INSERT INTO notification_log (alert_id, channel, recipient, status, sent_at) VALUES ($1, 'telegram', $2, 'sent', now())
-           ON CONFLICT (alert_id, channel, recipient) DO UPDATE SET status = 'sent', sent_at = now(), last_attempt_at = now(), error = NULL, attempts = notification_log.attempts + 1`,
-          [a.id, u.chat_id],
-        );
+        await api.sendMessage(chatId, formatAlertMessage(toAlertForMessage(a, ruleNames.get(a.rule_code) ?? a.rule_code), cfg.chain.explorer_tx_url, names));
+        await log.updateOne(key(alertId), {
+          $set: { status: 'sent', sent_at: new Date(), last_attempt_at: new Date(), error: null }, $inc: { attempts: 1 }, $setOnInsert: { _id: (await nextIds(db, 'notification_log')) as never },
+        }, { upsert: true });
         result.sent++;
       } catch (e) {
         const error = (e instanceof Error ? e.message : 'send failed').slice(0, 300);
-        await db.query(
-          `INSERT INTO notification_log (alert_id, channel, recipient, status, error) VALUES ($1, 'telegram', $2, 'failed', $3)
-           ON CONFLICT (alert_id, channel, recipient) DO UPDATE SET status = 'failed', error = $3, last_attempt_at = now(), attempts = notification_log.attempts + 1`,
-          [a.id, u.chat_id, error],
-        );
+        await log.updateOne(key(alertId), {
+          $set: { status: 'failed', error, last_attempt_at: new Date() }, $inc: { attempts: 1 }, $setOnInsert: { _id: (await nextIds(db, 'notification_log')) as never, sent_at: null },
+        }, { upsert: true });
         result.failed++;
         if (e instanceof StopRun) { result.skipped = error; return result; }
         if (e instanceof TelegramError && e.botBlocked) {
-          await db.query(`UPDATE telegram_users SET status = 'authorized', subscribed_at = NULL, updated_at = now() WHERE chat_id = $1`, [u.chat_id]);
+          await db.collection('telegram_users').updateOne({ _id: u._id }, { $set: { status: 'authorized', subscribed_at: null, updated_at: new Date() } });
           break;                                                                       // nothing more can be delivered to this person
         }
       }

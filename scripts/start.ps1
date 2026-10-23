@@ -30,26 +30,40 @@ if (-not (Test-Path (Join-Path $root 'backend\node_modules')) -or -not (Test-Pat
   npm run install:all
 }
 if (-not (Test-Path (Join-Path $root 'backend\.env'))) {
-  throw "backend\.env is missing. Copy backend\.env.example to backend\.env and fill in DUNE_API_KEY, DATABASE_URL and ADMIN_TOKEN."
+  throw "backend\.env is missing. Copy backend\.env.example to backend\.env and fill in DUNE_API_KEY, MONGODB_URI and ADMIN_TOKEN."
 }
 $envText = Get-Content (Join-Path $root 'backend\.env') -Raw
 if ($envText -notmatch '(?m)^DUNE_API_KEY=\S+') { Write-Host "    WARNING: DUNE_API_KEY is empty in backend\.env; the worker cannot fetch new data." -ForegroundColor Yellow }
 
 # ---- 1. database --------------------------------------------------------------------------------
-Step 'Database (PostgreSQL on port 5433)'
-$data = Join-Path $root 'backend\.pgdata'
-$pgctl = Join-Path $root 'backend\node_modules\@embedded-postgres\windows-x64\native\bin\pg_ctl.exe'
-if (-not (Test-Path (Join-Path $data 'PG_VERSION'))) {
-  throw "The database has not been created yet. Run 'npm run db:dev' once (wait for 'Postgres running', then press Ctrl+C), then 'npm run db:migrate', then .\run.cmd again."
-}
-if (Test-Port 5433) {
+# MongoDB. The address comes from MONGODB_URI in backend\.env (default: this PC, port 27018, started here from the data folder backend\.mongodata).
+$uri = 'mongodb://127.0.0.1:27018/deod_monitor'
+if ($envText -match '(?m)^MONGODB_URI=(\S+)') { $uri = $Matches[1].Trim('"', "'") }
+if ($uri -notmatch '^mongodb://(?:[^@/]*@)?(\[[^\]]+\]|[^:/,?]+)(?::(\d+))?') { throw "MONGODB_URI in backend\.env does not look like mongodb://127.0.0.1:27018/deod_monitor" }
+$dbHost = $Matches[1]; $dbPort = if ($Matches[2]) { [int]$Matches[2] } else { 27017 }
+$localDb = @('127.0.0.1', 'localhost', '[::1]') -contains $dbHost
+Step "Database (MongoDB on port $dbPort)"
+if (-not $localDb) {
+  Ok "using the database at $dbHost (from MONGODB_URI); nothing to start on this PC"
+} elseif (Test-Port $dbPort) {
   Ok 'already running'
 } else {
-  $log = Join-Path $data 'server.log'
-  Remove-Item $log -ErrorAction SilentlyContinue
-  Start-Process -FilePath $pgctl -ArgumentList @('-D', $data, '-o', '"-p 5433"', '-l', $log, '-w', '-t', '120', 'start') -WindowStyle Hidden | Out-Null
-  Write-Host '    starting (after a PC restart this takes up to a minute: it repairs itself first)...'
-  $ready = Wait-Until 150 { (Test-Path $log) -and ((Get-Content $log -Raw) -match 'ready to accept connections') }
+  $data = Join-Path $root 'backend\.mongodata'
+  New-Item -ItemType Directory -Force -Path $data | Out-Null
+  # The mongod program: MONGOD_PATH, one on the PATH, or the copy the project keeps in its cache (downloaded once, then reused).
+  $mongod = $env:MONGOD_PATH
+  if (-not $mongod) { $found = Get-Command mongod -ErrorAction SilentlyContinue; if ($found) { $mongod = $found.Source } }
+  if (-not $mongod) {
+    Write-Host '    locating the MongoDB program (the first time this downloads it, about 100 MB)...'
+    Push-Location (Join-Path $root 'backend')
+    $mongod = (& node -e "import('mongodb-memory-server-core').then(m=>m.MongoBinary.getPath()).then(p=>console.log(p))" | Select-Object -Last 1)
+    Pop-Location
+  }
+  if (-not $mongod -or -not (Test-Path $mongod)) { throw 'Could not find or download the MongoDB program (mongod). Install MongoDB Community Server, or set MONGOD_PATH.' }
+  $log = Join-Path $data 'mongod.log'
+  Start-Process -FilePath $mongod -ArgumentList @('--dbpath', "`"$data`"", '--port', $dbPort, '--bind_ip', '127.0.0.1', '--logpath', "`"$log`"", '--logappend') -WindowStyle Hidden | Out-Null
+  Write-Host '    starting (after a PC restart this can take a little while: it repairs itself first)...'
+  $ready = Wait-Until 150 { Test-Port $dbPort }
   if (-not $ready) { throw "The database did not become ready. Look at $log" }
   Ok 'ready'
 }

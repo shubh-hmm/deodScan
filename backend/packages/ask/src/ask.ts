@@ -4,10 +4,11 @@
 // anything except what those tools return. Before an answer is shown, every figure in it is looked up in the tool results (verify.ts);
 // if a figure cannot be matched, the model gets one chance to correct it, and if it still cannot, the answer is withheld and only the
 // retrieved data is shown. So a wrong number cannot reach the screen as a verified answer.
-import type pg from 'pg';
+import type { Db } from 'mongodb';
 import { collectFigures, extractFigures, verifyAnswer, type Figure } from './verify.js';
 import { TOOLS, toolDefs } from './tools.js';
 import { LlmError, type LlmClient, type Msg } from './llm.js';
+import { dataAnchor } from '@deod/analytics';
 
 export const MAX_STEPS = 8;
 export const MAX_QUESTION_CHARS = 500;
@@ -49,7 +50,7 @@ function trim(result: unknown): unknown {
   return text.length <= MAX_TOOL_RESULT_CHARS ? result : { truncated: true, note: 'The result was too large and was cut; ask for a narrower period or fewer rows.', head: text.slice(0, MAX_TOOL_RESULT_CHARS) };
 }
 
-async function runTool(db: pg.Pool, now: Date, name: string, rawArgs: string): Promise<ToolRecord> {
+async function runTool(db: Db, now: Date, anchor: Date | null, name: string, rawArgs: string): Promise<ToolRecord> {
   const spec = TOOLS.find((t) => t.name === name);
   if (!spec) return { tool: name, args: rawArgs, result: null, error: `There is no tool called "${name}".` };
   let parsed: unknown;
@@ -57,7 +58,7 @@ async function runTool(db: pg.Pool, now: Date, name: string, rawArgs: string): P
   const args = spec.args.safeParse(parsed);
   if (!args.success) return { tool: name, args: parsed, result: null, error: `Invalid arguments: ${args.error.issues.map((i) => `${i.path.join('.') || 'args'}: ${i.message}`).join('; ')}` };
   try {
-    return { tool: name, args: args.data, result: trim(await spec.run(args.data, { db, now })) };
+    return { tool: name, args: args.data, result: trim(await spec.run(args.data, { db, now, anchor })) };
   } catch (e) {
     return { tool: name, args: args.data, result: null, error: e instanceof Error ? e.message.slice(0, 300) : 'The tool failed.' };
   }
@@ -70,8 +71,9 @@ const MAX_HISTORY_ANSWER_CHARS = 1500;
 
 export interface AskOptions { now?: Date; defaultRange?: string; signal?: AbortSignal; history?: Turn[] }
 
-export async function runAsk(db: pg.Pool, llm: LlmClient, question: string, opts: AskOptions = {}): Promise<AskResult> {
+export async function runAsk(db: Db, llm: LlmClient, question: string, opts: AskOptions = {}): Promise<AskResult> {
   const now = opts.now ?? new Date();
+  const anchor = await dataAnchor(db).catch(() => null);
   const q = question.trim();
   if (!q) throw new LlmError('Please type a question.', 'other');
   if (q.length > MAX_QUESTION_CHARS) throw new LlmError(`Please keep the question under ${MAX_QUESTION_CHARS} characters.`, 'other');
@@ -94,7 +96,7 @@ export async function runAsk(db: pg.Pool, llm: LlmClient, question: string, opts
     if (reply.toolCalls.length) {
       messages.push({ role: 'assistant', content: reply.content, tool_calls: reply.toolCalls });
       // The calls are independent reads, so they run together; every call gets exactly one tool message back.
-      const done = await Promise.all(reply.toolCalls.map((c) => runTool(db, now, c.function.name, c.function.arguments)));
+      const done = await Promise.all(reply.toolCalls.map((c) => runTool(db, now, anchor, c.function.name, c.function.arguments)));
       reply.toolCalls.forEach((c, i) => {
         const r = done[i]!;
         records.push(r);

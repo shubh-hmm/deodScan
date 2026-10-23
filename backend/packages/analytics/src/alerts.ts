@@ -1,7 +1,8 @@
 // Alert list, alert rules and the wallet watchlist. Everything is read from (or, for the watchlist, written to) the application database;
 // nothing here calls Dune or any other service.
-import type pg from 'pg';
+import type { Db, Document } from 'mongodb';
 import { z } from 'zod';
+import { decStr, decStrOrNull, toDec128 } from '@deod/db';
 
 /** Shown next to every watchlist control and alert list: what monitoring can and cannot see. */
 export const WATCH_LIMITATION =
@@ -19,41 +20,46 @@ export const AlertFilter = z.object({
   offset: z.coerce.number().int().min(0).default(0),
 });
 
-export async function listAlerts(db: pg.Pool, f: z.infer<typeof AlertFilter>, explorerTxUrl: string) {
-  const where: string[] = [];
-  const params: unknown[] = [];
-  const bind = (v: unknown) => { params.push(v); return `$${params.length}`; };
-  if (f.rule) where.push(`a.rule_code = ${bind(f.rule)}`);
-  if (f.exchange) where.push(`a.exchange = ${bind(f.exchange)}`);
-  if (f.wallet) { const p = bind(f.wallet); where.push(`(a.wallet_address = ${p} OR a.sender = ${p} OR a.recipient = ${p})`); }
-  const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
-  const [total, rows] = await Promise.all([
-    db.query(`SELECT count(*)::int AS n FROM alerts a ${w}`, params),
-    db.query(
-      `SELECT a.id, a.rule_code, r.name AS rule_name, a.severity, a.source, a.occurred_at, a.exchange, a.direction, a.amount::text AS amount,
-              a.usd_value::text AS usd_value, a.sender, a.recipient, a.wallet_address, a.tx_hash, a.evt_index, a.block_number, a.details, a.created_at
-       FROM alerts a JOIN alert_rules r ON r.code = a.rule_code ${w}
-       ORDER BY a.occurred_at DESC, a.id DESC LIMIT ${f.limit} OFFSET ${f.offset}`,
-      params,
-    ),
+export async function listAlerts(db: Db, f: z.infer<typeof AlertFilter>, explorerTxUrl: string) {
+  const filter: Document = {
+    ...(f.rule ? { rule_code: f.rule } : {}), ...(f.exchange ? { exchange: f.exchange } : {}),
+    ...(f.wallet ? { $or: [{ wallet_address: f.wallet }, { sender: f.wallet }, { recipient: f.wallet }] } : {}),
+  };
+  const alerts = db.collection('alerts');
+  const [total, rows, rules] = await Promise.all([
+    alerts.countDocuments(filter),
+    alerts.find(filter).sort({ occurred_at: -1, _id: -1 }).skip(f.offset).limit(f.limit).toArray(),
+    db.collection('alert_rules').find().toArray(),
   ]);
+  const names = new Map(rules.map((r) => [r._id as unknown as string, r.name as string]));
   return {
-    total: total.rows[0].n as number,
-    rows: rows.rows.map((r) => ({ ...r, explorer_url: r.tx_hash ? `${explorerTxUrl}${r.tx_hash}` : null })),
+    total,
+    rows: rows.map((a) => ({
+      id: a._id as unknown as number, rule_code: a.rule_code as string, rule_name: names.get(a.rule_code) ?? (a.rule_code as string), severity: a.severity as string, source: a.source as string,
+      occurred_at: a.occurred_at as Date, exchange: (a.exchange as string | null) ?? null, direction: (a.direction as string | null) ?? null, amount: decStr(a.amount),
+      usd_value: decStrOrNull(a.usd_value), sender: (a.sender as string | null) ?? null, recipient: (a.recipient as string | null) ?? null,
+      wallet_address: (a.wallet_address as string | null) ?? null, tx_hash: (a.tx_hash as string | null) ?? null, evt_index: (a.evt_index as number | null) ?? null,
+      block_number: (a.block_number as number | null) ?? null, details: (a.details as Record<string, unknown>) ?? {}, created_at: a.created_at as Date,
+      explorer_url: a.tx_hash ? `${explorerTxUrl}${a.tx_hash}` : null,
+    })),
     limitation: WATCH_LIMITATION,
   };
 }
 
-export async function alertRules(db: pg.Pool) {
+export async function alertRules(db: Db) {
   const [rules, counts, state] = await Promise.all([
-    db.query(`SELECT code, kind, name, enabled, severity, params, updated_at FROM alert_rules ORDER BY code`),
-    db.query(`SELECT rule_code, count(*)::int AS n, max(occurred_at) AS latest FROM alerts GROUP BY rule_code`),
-    db.query(`SELECT name, last_id::text, updated_at FROM alert_state ORDER BY name`),
+    db.collection('alert_rules').find().sort({ _id: 1 }).toArray(),
+    db.collection('alerts').aggregate([{ $group: { _id: '$rule_code', n: { $sum: 1 }, latest: { $max: '$occurred_at' } } }]).toArray(),
+    db.collection('alert_state').find().sort({ _id: 1 }).toArray(),
   ]);
-  const byRule = new Map(counts.rows.map((r) => [r.rule_code as string, r]));
+  const byRule = new Map(counts.map((r) => [r._id as string, r]));
+  const scans = state.map((s) => s.updated_at as Date);
   return {
-    rules: rules.rows.map((r) => ({ ...r, alerts: byRule.get(r.code)?.n ?? 0, latest_alert: byRule.get(r.code)?.latest ?? null })),
-    lastScan: state.rows.length ? state.rows.reduce((a, b) => (a.updated_at > b.updated_at ? a : b)).updated_at : null,
+    rules: rules.map((r) => ({
+      code: r._id as unknown as string, kind: r.kind as string, name: r.name as string, enabled: r.enabled as boolean, severity: r.severity as string, params: r.params as Record<string, unknown>,
+      updated_at: r.updated_at as Date, alerts: (byRule.get(r._id as unknown as string)?.n as number) ?? 0, latest_alert: (byRule.get(r._id as unknown as string)?.latest as Date | undefined) ?? null,
+    })),
+    lastScan: scans.length ? scans.reduce((a, b) => (a > b ? a : b)) : null,
     limitation: WATCH_LIMITATION,
   };
 }
@@ -69,29 +75,32 @@ export const WatchInput = z.object({
   min_amount: z.coerce.number().min(0).max(1e15).default(0),
 });
 
-export async function listWatched(db: pg.Pool) {
-  const { rows } = await db.query(
-    `SELECT w.address, w.label, w.watch, w.min_amount::text AS min_amount, w.enabled, w.created_at,
-            (SELECT count(*)::int FROM alerts a WHERE a.rule_code = 'watched_wallet' AND a.wallet_address = w.address) AS alerts
-     FROM watched_wallets w ORDER BY w.created_at DESC`,
-  );
-  return { rows, max: MAX_WATCHED, limitation: WATCH_LIMITATION };
+const watchedRow = (w: Document) => ({
+  address: w._id as string, label: (w.label as string | null) ?? null, watch: w.watch as string, min_amount: decStr(w.min_amount), enabled: w.enabled as boolean, created_at: w.created_at as Date,
+});
+
+export async function listWatched(db: Db) {
+  const [rows, counts] = await Promise.all([
+    db.collection('watched_wallets').find().sort({ created_at: -1 }).toArray(),
+    db.collection('alerts').aggregate([{ $match: { rule_code: 'watched_wallet' } }, { $group: { _id: '$wallet_address', n: { $sum: 1 } } }]).toArray(),
+  ]);
+  const byWallet = new Map(counts.map((c) => [c._id as string, c.n as number]));
+  return { rows: rows.map((w) => ({ ...watchedRow(w), alerts: byWallet.get(w._id as unknown as string) ?? 0 })), max: MAX_WATCHED, limitation: WATCH_LIMITATION };
 }
 
 /** Adds a wallet, or updates its settings when it is already watched. Returns null when the watchlist is full. */
-export async function upsertWatched(db: pg.Pool, w: z.infer<typeof WatchInput>) {
-  const { rows: [c] } = await db.query(`SELECT count(*)::int AS n, bool_or(address = $1) AS has FROM watched_wallets`, [w.address]);
-  if (!c.has && c.n >= MAX_WATCHED) return null;
-  const { rows: [row] } = await db.query(
-    `INSERT INTO watched_wallets (address, label, watch, min_amount) VALUES ($1, $2, $3, $4)
-     ON CONFLICT (address) DO UPDATE SET label = EXCLUDED.label, watch = EXCLUDED.watch, min_amount = EXCLUDED.min_amount, enabled = true
-     RETURNING address, label, watch, min_amount::text AS min_amount, enabled, created_at`,
-    [w.address, w.label, w.watch, w.min_amount],
+export async function upsertWatched(db: Db, w: z.infer<typeof WatchInput>) {
+  const col = db.collection('watched_wallets');
+  const [n, has] = await Promise.all([col.countDocuments(), col.countDocuments({ _id: w.address as never }, { limit: 1 })]);
+  if (!has && n >= MAX_WATCHED) return null;
+  const row = await col.findOneAndUpdate(
+    { _id: w.address as never },
+    { $set: { address: w.address, label: w.label, watch: w.watch, min_amount: toDec128(w.min_amount), enabled: true }, $setOnInsert: { created_at: new Date() } },
+    { upsert: true, returnDocument: 'after' },
   );
-  return row;
+  return watchedRow(row!);
 }
 
-export async function removeWatched(db: pg.Pool, address: string) {
-  const { rowCount } = await db.query(`DELETE FROM watched_wallets WHERE address = $1`, [address]);
-  return (rowCount ?? 0) > 0;
+export async function removeWatched(db: Db, address: string) {
+  return (await db.collection('watched_wallets').deleteOne({ _id: address as never })).deletedCount > 0;
 }

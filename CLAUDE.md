@@ -11,9 +11,9 @@ This repo has a running handoff at [HANDOFF.md](HANDOFF.md). It applies to **eve
 
 ## Layout (details in HANDOFF.md §2)
 
-- `frontend/` is the Next.js dashboard and `backend/` holds the API, the sync worker, the shared libraries, the config and the SQL. They are separate npm projects that talk only over HTTP. Never import backend code into the frontend.
+- `frontend/` is the Next.js dashboard and `backend/` holds the API, the sync worker, the shared libraries, the config and the Dune SQL. They are separate npm projects that talk only over HTTP. Never import backend code into the frontend. The database is MongoDB (since 2026-10-23; the old PostgreSQL is only read by the one-off `npm run db:copy-from-postgres`).
 - Run commands from the project root (`npm run api`, `worker`, `web`, `audit`, `typecheck`, `test`; `run.cmd` / `stop.cmd` start and stop everything).
-- The owner's manual way: two terminals, `cd backend; npm run dev` (PostgreSQL + API, worker OFF; `npm run dev:worker` adds the Dune worker, which spends credits) and `cd frontend; npm run dev`. Never start the worker without the owner asking.
+- The owner's manual way: two terminals, `cd backend; npm run dev` (MongoDB + API, worker OFF; `npm run dev:worker` adds the Dune worker, which spends credits) and `cd frontend; npm run dev`. Never start the worker without the owner asking.
 
 ## Project rules (summary; details in HANDOFF.md §3–4)
 

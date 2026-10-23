@@ -4,7 +4,7 @@
 //
 // Shutdown (Ctrl+C, SIGTERM, Ctrl+Break, or a 'shutdown' message from `npm run dev`): no new day is started, and a sync that is
 // already running gets up to SHUTDOWN_GRACE_SECONDS (default 20) to finish, so Dune credits already spent are not wasted.
-import { closePool, getPool, migrate, seedFromConfig } from '@deod/db';
+import { closeDb, getDb, migrate, seedFromConfig } from '@deod/db';
 import { requestStop, syncAllCompletedDays, log } from './sync.js';
 import { startAutoUpdates } from './autoToday.js';
 
@@ -49,7 +49,7 @@ async function shutdown(reason: string, exitCode = 0) {
   } else {
     log.info({ reason }, 'shutdown requested');
   }
-  await closePool();
+  await closeDb();
   process.exit(exitCode);
 }
 
@@ -65,7 +65,7 @@ process.on('uncaughtException', (err) => {
 });
 process.on('message', (m) => { if (m === 'shutdown') void shutdown('asked by the parent process'); });
 
-await migrate(getPool());
+await migrate(getDb());
 await seedFromConfig();
 log.info({ checkIntervalMinutes: intervalMs / 60_000 }, 'worker started');
 await tick();

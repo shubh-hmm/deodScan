@@ -14,7 +14,7 @@ export default async function Status() {
   const [m, s] = await Promise.all([meta(), api('/api/sync/status')]);
   return (
     <>
-      <PageHeader eyebrow="System" title="Sync status" subtitle="Dune → PostgreSQL synchronisation. Each completed UTC day is fetched once; the worker checks hourly and makes no Dune call when nothing new has finished." />
+      <PageHeader eyebrow="System" title="Sync status" subtitle="Dune → MongoDB synchronisation. Each completed UTC day is fetched once; the worker checks hourly and makes no Dune call when nothing new has finished." />
 
       <Card title="Queries">
         <table className="data">

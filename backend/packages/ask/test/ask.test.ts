@@ -1,21 +1,11 @@
 // The assistant loop against a scripted FAKE model and a THROWAWAY database: nothing is sent to OpenAI and deod_monitor is never touched.
 // Skipped (and reported as skipped) when no database server is reachable.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import pg from 'pg';
-import { loadEnv } from '@deod/config';
-import { migrate } from '@deod/db';
+import { addExchanges, addFlow, createScratchDb, setSyncedUntil } from '@deod/db';
 import { MAX_QUESTION_CHARS, MAX_STEPS, createAsk, refundQuestion, reserveQuestion, runAsk, systemPrompt, toolDefs, TOOLS, usageToday, LlmError } from '../src/index.js';
 import type { LlmClient, LlmReply, Msg, ToolCall } from '../src/llm.js';
 
-let admin: pg.Client | null = null;
-let baseUrl = '';
-try {
-  baseUrl = loadEnv().DATABASE_URL;
-  admin = new pg.Client({ connectionString: baseUrl, connectionTimeoutMillis: 3000 });
-  await admin.connect();
-} catch {
-  admin = null;
-}
+const scratch = await createScratchDb('deod_ask_test');
 
 const NOW = new Date('2026-10-22T12:00:00Z');
 const call = (id: string, name: string, args: unknown): ToolCall => ({ id, type: 'function', function: { name, arguments: typeof args === 'string' ? args : JSON.stringify(args) } });
@@ -55,34 +45,20 @@ describe('tool definitions', () => {
   });
 });
 
-describe.skipIf(!admin)('asking questions', () => {
-  const dbName = `deod_ask_test_${Date.now()}`;
-  let pool: pg.Pool;
-  let n = 100;
-  const flow = async (exchange: string, direction: 'IN' | 'OUT', amount: string, time: string) => {
-    n += 1;
-    await pool.query(
-      `INSERT INTO exchange_flows (exchange, direction, token_address, wallet_address, exchange_address, amount_raw, amount, tx_hash, evt_index, block_number, block_time)
-       VALUES ($1, $2, '0x3510fbbc13090f991ffa523527113a166161683e', '0x1111111111111111111111111111111111111111', '0x4982085c9e2f89f2ecb8131eca71afad896e89cb', $3, $4, $5, 1, $6, $7)`,
-      [exchange, direction, (BigInt(Math.round(Number(amount) * 100)) * 10n ** 16n).toString(), amount, `0x${n.toString(16).padStart(64, '0')}`, n, time]);
-  };
+describe.skipIf(!scratch)('asking questions', () => {
+  const pool = scratch!.db;
+  const WALLET = '0x1111111111111111111111111111111111111111';
+  const flow = (exchange: string, direction: 'IN' | 'OUT', amount: string, time: string) => addFlow(pool, { exchange, direction, amount, time, wallet: WALLET });
 
   beforeAll(async () => {
-    await admin!.query(`CREATE DATABASE ${dbName}`);
-    pool = new pg.Pool({ connectionString: baseUrl.replace(/\/[^/]*$/, `/${dbName}`), max: 4 });
-    await migrate(pool);
-    await pool.query(`INSERT INTO exchanges (slug, name) VALUES ('mexc', 'MEXC'), ('toobit', 'Toobit')`);
-    await pool.query(`INSERT INTO dune_sync_state (query_name, synced_until) VALUES ('exchange_transfers', '2026-10-22T00:00:00Z'), ('pancakeswap_swaps', '2026-10-22T00:00:00Z')`);
+    await addExchanges(pool, { mexc: 'MEXC', toobit: 'Toobit' });
+    await setSyncedUntil(pool, '2026-10-22T00:00:00Z');
     await flow('mexc', 'IN', '9.97', '2026-10-20T10:00:00Z');
     await flow('toobit', 'OUT', '1270524.83', '2026-10-18T15:28:00Z');
     await flow('mexc', 'IN', '99999', '2026-10-20T11:00:00Z');
   }, 60_000);
 
-  afterAll(async () => {
-    await pool?.end();
-    await admin?.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`);
-    await admin?.end();
-  });
+  afterAll(() => scratch?.drop());
 
   it('answers from tool results: the model asks for data, gets it, and its figures are checked and accepted', async () => {
     const m = scripted([

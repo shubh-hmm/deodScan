@@ -68,12 +68,17 @@ describe('lock file: one supervisor per backend folder', () => {
 
 describe('dbTarget', () => {
   it('reads a local URL', () => {
-    expect(dbTarget('postgres://deod:p%40ss@localhost:5433/deod_monitor')).toEqual({
-      host: 'localhost', port: 5433, database: 'deod_monitor', user: 'deod', password: 'p@ss', local: true,
-    });
+    expect(dbTarget('mongodb://localhost:27018/deod_monitor')).toEqual({ host: 'localhost', port: 27018, database: 'deod_monitor', local: true });
   });
-  it('marks a remote host as not local', () => expect(dbTarget('postgres://u:p@db.example.com:5432/x').local).toBe(false));
-  it('defaults the port to 5432', () => expect(dbTarget('postgres://u:p@127.0.0.1/x').port).toBe(5432));
+  it('ignores credentials and options', () => {
+    expect(dbTarget('mongodb://deod:p%40ss@127.0.0.1:27018/deod_monitor?authSource=admin')).toEqual({ host: '127.0.0.1', port: 27018, database: 'deod_monitor', local: true });
+  });
+  it('marks a remote host as not local', () => expect(dbTarget('mongodb://u:p@db.example.com:27017/x').local).toBe(false));
+  it('marks an Atlas address as not local', () => expect(dbTarget('mongodb+srv://u:p@cluster0.abcde.mongodb.net/x').local).toBe(false));
+  it('uses the first host of a replica set list', () => expect(dbTarget('mongodb://a.example.com:27017,b.example.com:27017/x?replicaSet=rs')).toMatchObject({ host: 'a.example.com', port: 27017 }));
+  it('defaults the port to 27017 and the database to deod_monitor', () => expect(dbTarget('mongodb://127.0.0.1')).toMatchObject({ port: 27017, database: 'deod_monitor' }));
+  it('reads an IPv6 address', () => expect(dbTarget('mongodb://[::1]:27018/x')).toMatchObject({ host: '[::1]', port: 27018, local: true }));
+  it('rejects a PostgreSQL URL with a clear message', () => expect(() => dbTarget('postgres://u:p@localhost:5433/x')).toThrow(/MONGODB_URI/));
 });
 
 describe('prettyLine', () => {

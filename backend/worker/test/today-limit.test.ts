@@ -1,19 +1,9 @@
 // The daily limit of "Update today": how uses are counted and when the next one is refused. Runs on a THROWAWAY database; skipped when none is reachable.
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import pg from 'pg';
-import { loadEnv } from '@deod/config';
-import { migrate } from '@deod/db';
+import { afterAll, describe, expect, it } from 'vitest';
+import { addSyncRuns, createScratchDb } from '@deod/db';
 import { SyncLimitError, TODAY_MAX_PER_DAY, todayCooldownSeconds, todayUsage } from '../src/sync.js';
 
-let admin: pg.Client | null = null;
-let baseUrl = '';
-try {
-  baseUrl = loadEnv().DATABASE_URL;
-  admin = new pg.Client({ connectionString: baseUrl, connectionTimeoutMillis: 3000 });
-  await admin.connect();
-} catch {
-  admin = null;
-}
+const scratch = await createScratchDb('deod_limit_test');
 
 const NOW = new Date('2026-10-22T12:00:00Z');
 
@@ -27,28 +17,13 @@ describe('the default', () => {
   });
 });
 
-describe.skipIf(!admin)('counting uses', () => {
-  const dbName = `deod_limit_test_${Date.now()}`;
-  let pool: pg.Pool;
+describe.skipIf(!scratch)('counting uses', () => {
+  const pool = scratch!.db;
   // One use starts one run per query (transfers and swaps), so each use is recorded as two rows.
-  const use = async (at: string, status = 'ok', mode = 'today') => {
-    for (const q of ['exchange_transfers', 'pancakeswap_swaps']) {
-      await pool.query(`INSERT INTO sync_runs (query_name, mode, window_start, window_end, started_at, status) VALUES ($1, $2, $3, $3, $4, $5)`, [q, mode, at, at, status]);
-    }
-  };
-  const clear = () => pool.query('DELETE FROM sync_runs');
+  const use = (at: string, status = 'ok', mode = 'today') => addSyncRuns(pool, at, mode, status);
+  const clear = () => pool.collection('sync_runs').deleteMany({});
 
-  beforeAll(async () => {
-    await admin!.query(`CREATE DATABASE ${dbName}`);
-    pool = new pg.Pool({ connectionString: baseUrl.replace(/\/[^/]*$/, `/${dbName}`), max: 3 });
-    await migrate(pool);
-  }, 60_000);
-
-  afterAll(async () => {
-    await pool?.end();
-    await admin?.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`);
-    await admin?.end();
-  });
+  afterAll(() => scratch?.drop());
 
   it('starts at zero used and two left', async () => {
     await clear();

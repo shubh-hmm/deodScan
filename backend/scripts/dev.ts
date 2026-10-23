@@ -1,21 +1,19 @@
 // One command for the whole backend:
 //
-//   npm run dev                  PostgreSQL + API              (no Dune credits can be spent)
-//   npm run dev:worker           PostgreSQL + API + Dune sync worker   (also: npm run dev -- --worker, or DEV_WORKER=1)
+//   npm run dev                  MongoDB + API                 (no Dune credits can be spent)
+//   npm run dev:worker           MongoDB + API + Dune sync worker      (also: npm run dev -- --worker, or DEV_WORKER=1)
 //
 // - Reuses anything that is already running (a database or API started another way) and never stops what it did not start.
 // - Refuses to run twice in the same folder (lock file) and never starts a second worker.
 // - Ctrl+C stops things in reverse order: worker (lets a running sync finish), API, then the database cleanly.
 //
-// Settings come from backend/.env as before (DATABASE_URL, API_PORT ...). Testing hooks: DEV_PG_DATA (database folder),
-// DEV_LOCK_FILE (lock file), DEV_PG_VERBOSE=1 (show every PostgreSQL log line).
-import { execFile, spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, resolve } from 'node:path';
-import { promisify } from 'node:util';
+// Settings come from backend/.env as before (MONGODB_URI, API_PORT ...). Testing hooks: DEV_MONGO_DATA (database folder),
+// DEV_LOCK_FILE (lock file), DEV_DB_VERBOSE=1 (show every MongoDB log line), MONGOD_PATH (use this mongod program).
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { resolve } from 'node:path';
 import readline from 'node:readline';
-import pg from 'pg';
+import { MongoClient } from 'mongodb';
 import { backendRoot, loadEnv } from '@deod/config';
 import { acquireLock, dbTarget, isPortOpen, parseArgs, prettyLine, releaseLock, stopInOrder, waitFor, type Stoppable } from './dev-lib.js';
 
@@ -23,7 +21,7 @@ const opts = parseArgs(process.argv.slice(2), process.env);
 if (opts.help) {
   console.log(`DEODScan backend, one command.
 
-  npm run dev                 start PostgreSQL and the API
+  npm run dev                 start MongoDB and the API
   npm run dev:worker          also start the Dune sync worker (uses Dune credits)
 
 Press Ctrl+C once to stop everything cleanly.`);
@@ -50,7 +48,7 @@ if (!lock.ok) {
 }
 
 const env = loadEnv();
-const db = dbTarget(env.DATABASE_URL);
+const db = dbTarget(env.MONGODB_URI);
 const apiHost = process.env.API_HOST ?? '127.0.0.1';
 const apiPort = env.API_PORT;
 
@@ -93,17 +91,36 @@ process.on('uncaughtException', (e) => { say('dev', `Unexpected error: ${e.messa
 process.on('unhandledRejection', (e) => { say('dev', `Unexpected error: ${String(e)}`); void shutdown('Unexpected error', 1); });
 
 // ---------------------------------------------------------------- 1. database
-// PostgreSQL is started as its own detached process, outside the terminal's Ctrl+C group. A terminal sends Ctrl+C to every
-// process in it, and Postgres treats that as "shut down now", which would pull the database out from under the API and the
-// worker (and a sync in progress) before they have finished. Detached, it only stops when this command stops it, last, with pg_ctl.
-const execFileAsync = promisify(execFile);
+// MongoDB is started as its own detached process, outside the terminal's Ctrl+C group. A terminal sends Ctrl+C to every process in it,
+// which would pull the database out from under the API and the worker (and a sync in progress) before they have finished. Detached, it only
+// stops when this command stops it, last, by asking the server to shut down.
 
 function showDbLog(logFile: string, fromByte: number) {
-  const show = process.env.DEV_PG_VERBOSE === '1' ? /./ : /ERROR|FATAL|PANIC|WARNING|not properly shut down|automatic recovery|shut down at/;
+  // mongod writes one JSON object per line; "s" is the severity (I info, W warning, E error, F fatal). Only W/E/F are shown unless DEV_DB_VERBOSE=1.
+  const verbose = process.env.DEV_DB_VERBOSE === '1';
   try {
     const text = readFileSync(logFile, 'utf8').slice(fromByte);
-    for (const line of text.split(/\r?\n/)) if (line.trim() && show.test(line)) say('db', line.replace(/^\d{4}-\d{2}-\d{2} \S+ \S+ \[\d+\] /, ''));
+    for (const line of text.split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      try {
+        const j = JSON.parse(line) as { s?: string; msg?: string; attr?: { error?: string } };
+        if (verbose || j.s === 'W' || j.s === 'E' || j.s === 'F') say('db', `${j.s ?? ''} ${j.msg ?? ''}${j.attr?.error ? ` (${j.attr.error})` : ''}`.trim());
+      } catch { if (verbose) say('db', line); }
+    }
   } catch { /* no log yet */ }
+}
+
+/** The mongod program: MONGOD_PATH, one on the PATH, or the copy mongodb-memory-server keeps in its cache (downloaded once, then reused). */
+async function findMongod(): Promise<string> {
+  if (process.env.MONGOD_PATH) return process.env.MONGOD_PATH;
+  if (spawnSync('mongod', ['--version'], { stdio: 'ignore' }).status === 0) return 'mongod';
+  const { MongoBinary } = await import('mongodb-memory-server-core');
+  return MongoBinary.getPath();
+}
+
+async function pingDb(): Promise<boolean> {
+  const c = new MongoClient(`mongodb://127.0.0.1:${db.port}`, { serverSelectionTimeoutMS: 1500, directConnection: true });
+  try { await c.db('admin').command({ ping: 1 }); return true; } catch { return false; } finally { await c.close().catch(() => {}); }
 }
 
 async function startDatabase() {
@@ -111,63 +128,40 @@ async function startDatabase() {
     say('db', `already running on port ${db.port}; reusing it (this command will not stop it)`);
     return;
   }
-  if (!db.local) throw new Error(`The database at ${db.host}:${db.port} (from DATABASE_URL) is not reachable, and it is not on this computer, so it cannot be started here.`);
+  if (!db.local) throw new Error(`The database at ${db.host}:${db.port} (from MONGODB_URI) is not reachable, and it is not on this computer, so it cannot be started here.`);
 
-  // The PostgreSQL programs come with the embedded-postgres package already installed in backend/node_modules. They are run
-  // directly: importing the package itself would install a process-wide "exit on Ctrl+C" hook that kills this command mid-shutdown.
-  const bins = (await import(`@embedded-postgres/${process.platform === 'win32' ? 'windows' : process.platform}-${process.arch}`)) as { postgres: string; initdb: string };
-  const binDir = dirname(bins.postgres);
-  const pgCtl = resolve(binDir, process.platform === 'win32' ? 'pg_ctl.exe' : 'pg_ctl');
-  const dataDir = process.env.DEV_PG_DATA ?? resolve(root, '.pgdata');
-  const logFile = resolve(dataDir, 'server.log');
+  const mongod = await findMongod();
+  const dataDir = process.env.DEV_MONGO_DATA ?? resolve(root, '.mongodata');
+  const logFile = resolve(dataDir, 'mongod.log');
+  if (!existsSync(dataDir)) { say('db', `no database found; creating a new empty one in ${dataDir}`); mkdirSync(dataDir, { recursive: true }); }
 
-  if (!existsSync(resolve(dataDir, 'PG_VERSION'))) {
-    say('db', `no database found; creating a new empty one in ${dataDir}`);
-    mkdirSync(dataDir, { recursive: true });
-    const pwFile = resolve(tmpdir(), `deodscan-pg-password-${process.pid}`);
-    writeFileSync(pwFile, `${db.password}\n`);
-    try {
-      // The same options embedded-postgres uses to create a cluster.
-      await execFileAsync(bins.initdb, [`--pgdata=${dataDir}`, '--auth=password', `--username=${db.user}`, `--pwfile=${pwFile}`, '--lc-messages=C']);
-    } finally { rmSync(pwFile, { force: true }); }
-  }
-
-  say('db', `starting PostgreSQL on port ${db.port} (after a PC restart this can take up to a minute)...`);
+  say('db', `starting MongoDB on port ${db.port} (after a PC restart this can take a little while)...`);
   const offset = existsSync(logFile) ? statSync(logFile).size : 0;
-  const fd = openSync(logFile, 'a');
-  const server = spawn(bins.postgres, ['-D', dataDir, '-p', String(db.port)], { detached: true, stdio: ['ignore', fd, fd], windowsHide: true });
-  closeSync(fd);
+  const server = spawn(mongod, ['--dbpath', dataDir, '--port', String(db.port), '--bind_ip', '127.0.0.1', '--logpath', logFile, '--logappend'], { detached: true, stdio: 'ignore', windowsHide: true });
   server.unref();
   let earlyExit: number | null | undefined;
   server.once('exit', (code) => { earlyExit = code; });
 
-  const admin = () => new pg.Client({ host: '127.0.0.1', port: db.port, user: db.user, password: db.password, database: 'postgres' });
   const up = await waitFor(async () => {
-    if (earlyExit !== undefined) throw new Error('postgres exited');
-    if (!(await isPortOpen(db.port, '127.0.0.1'))) return false;
-    const c = admin();
-    try { await c.connect(); await c.query('select 1'); return true; } catch { return false; } finally { await c.end().catch(() => {}); }
+    if (earlyExit !== undefined) throw new Error('mongod exited');
+    return (await isPortOpen(db.port, '127.0.0.1')) && (await pingDb());
   }, 180_000, 700).catch(() => false);
   if (!up) {
     showDbLog(logFile, offset);
-    throw new Error(`PostgreSQL did not start (see ${logFile}).`);
+    throw new Error(`MongoDB did not start (see ${logFile}).`);
   }
   owned.push({
     name: 'database',
     stop: async () => {
       const before = existsSync(logFile) ? statSync(logFile).size : 0;
-      await execFileAsync(pgCtl, ['-D', dataDir, 'stop', '-m', 'fast', '-w', '-t', '60']);
+      const c = new MongoClient(`mongodb://127.0.0.1:${db.port}`, { serverSelectionTimeoutMS: 5000, directConnection: true });
+      // A server that accepts "shutdown" closes the connection instead of answering, so an error here is the normal outcome.
+      try { await c.db('admin').command({ shutdown: 1, timeoutSecs: 30 }); } catch { /* connection closed by the shutting-down server */ } finally { await c.close().catch(() => {}); }
+      if (!(await waitFor(async () => !(await isPortOpen(db.port, '127.0.0.1')), 60_000, 300))) throw new Error('MongoDB did not stop within 60 seconds');
       showDbLog(logFile, before);
     },
   });
   showDbLog(logFile, offset);
-
-  const c = admin();
-  await c.connect();
-  try {
-    const found = await c.query('select 1 from pg_database where datname = $1', [db.database]);
-    if (!found.rowCount) { await c.query(`CREATE DATABASE "${db.database.replace(/"/g, '""')}"`); say('db', `created database "${db.database}"`); }
-  } finally { await c.end(); }
   say('db', `ready on port ${db.port}`);
 }
 

@@ -5,8 +5,8 @@
 //
 // Rule, checked every minute by the worker: take the most recent scheduled time that has passed today (UTC). If no scheduled update has run
 // since then and the minimum gap since the last update of any kind has passed, run one update. A manual press does not count for the slot. A slot the worker missed (it was off) is not made up later except for the most recent one.
-import type pg from 'pg';
-import { getPool } from '@deod/db';
+import type { Db } from 'mongodb';
+import { getDb } from '@deod/db';
 import { QUERIES, SyncBusyError, SyncCooldownError, SyncLimitError, log, syncToday, todayCooldownSeconds } from './sync.js';
 
 export interface Slot { hour: number; minute: number }
@@ -52,13 +52,13 @@ export interface AutoResult { ran: boolean; reason: string }
 
 /** One check. `run` is the update itself (syncToday), replaceable for tests. Never throws for an expected refusal. */
 export async function autoUpdateCheck(
-  now = new Date(), cfg: AutoConfig = autoConfigFromEnv(), db: pg.Pool = getPool(), run: (now: Date) => Promise<unknown> = (n) => syncToday(n, 'auto'),
+  now = new Date(), cfg: AutoConfig = autoConfigFromEnv(), db: Db = getDb(), run: (now: Date) => Promise<unknown> = (n) => syncToday(n, 'auto'),
 ): Promise<AutoResult> {
   if (!cfg.enabled) return { ran: false, reason: 'automatic updates are switched off (AUTO_UPDATE_TODAY=false)' };
   const slot = latestSlot(now, cfg.slots);
   if (!slot) return { ran: false, reason: 'no scheduled time has come yet today' };
-  const { rows } = await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM sync_runs WHERE mode = 'today_auto' AND query_name = $1 AND started_at >= $2`, [QUERIES[0], slot]);
-  if ((rows[0]?.n ?? 0) > 0) return { ran: false, reason: `a scheduled update already ran since ${slot.toISOString().slice(11, 16)} UTC` };
+  const ran = await db.collection('sync_runs').countDocuments({ mode: 'today_auto', query_name: QUERIES[0], started_at: { $gte: slot } });
+  if (ran > 0) return { ran: false, reason: `a scheduled update already ran since ${slot.toISOString().slice(11, 16)} UTC` };
   const wait = await todayCooldownSeconds(now, db);
   if (wait > 0) return { ran: false, reason: `the last update was too recent (try again in ${Math.ceil(wait / 60)} min)` };
   try {

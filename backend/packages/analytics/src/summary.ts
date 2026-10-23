@@ -2,7 +2,8 @@
 // queries return (no AI, no estimates), so the text always agrees with the page. buildSummary() is pure (data in, text out) and exactly testable;
 // summarize() gathers the data. The summary also says what the data cannot show (unsynced time, exchanges tracked only from a later date).
 import { Decimal } from 'decimal.js';
-import type pg from 'pg';
+import type { Db } from 'mongodb';
+import { decStr } from '@deod/db';
 import { dataThrough, overview, type Window } from './index.js';
 
 type Num = string | number | Decimal;
@@ -180,26 +181,29 @@ export function previousWindow(w: Window): Window | null {
   return { ...w, from: new Date(w.from.getTime() - span), to: w.from };
 }
 
-export async function summarize(db: pg.Pool, w: Window): Promise<Summary> {
+export async function summarize(db: Db, w: Window): Promise<Summary> {
   const lo = w.from ?? new Date('2000-01-01T00:00:00Z');
+  const tm = { block_time: { $gte: lo, $lt: w.to } };
   const prev = previousWindow(w);
-  const [current, previous, largest, first, through, alerts] = await Promise.all([
+  const [current, previous, largest, first, names, through, alerts] = await Promise.all([
     overview(db, w),
     prev ? overview(db, prev) : Promise.resolve(null),
-    // f.amount in ORDER BY is the numeric column; a bare "amount" would be the text alias in the select list and sort "9.9" above "1270524".
-    db.query(`SELECT f.exchange, f.direction, f.amount::text AS amount, f.block_time, f.tx_hash FROM exchange_flows f WHERE f.block_time >= $1 AND f.block_time < $2 ORDER BY f.amount DESC, f.id LIMIT 1`, [lo, w.to]),
-    db.query(`SELECT e.name, min(f.block_time) AS first FROM exchange_flows f JOIN exchanges e ON e.slug = f.exchange GROUP BY e.name`),
+    // Sorted on the numeric (Decimal128) amount, so 1270524 ranks above 9.9.
+    db.collection('exchange_flows').find(tm).sort({ amount: -1, _id: 1 }).limit(1).next(),
+    db.collection('exchange_flows').aggregate([{ $group: { _id: '$exchange', first: { $min: '$block_time' } } }]).toArray(),
+    db.collection('exchanges').find().toArray(),
     dataThrough(db),
     // Alerts exist only after their database update has been applied; the summary must work either way.
-    db.query(`SELECT rule_code, count(*)::int AS n FROM alerts WHERE occurred_at >= $1 AND occurred_at < $2 GROUP BY rule_code ORDER BY rule_code`, [lo, w.to]).catch(() => null),
+    db.collection('alerts').aggregate([{ $match: { occurred_at: { $gte: lo, $lt: w.to } } }, { $group: { _id: '$rule_code', n: { $sum: 1 } } }, { $sort: { _id: 1 } }]).toArray().catch(() => null),
   ]);
+  const exchangeName = new Map(names.map((e) => [e._id as unknown as string, e.name as string]));
   return buildSummary({
     window: { from: w.from, to: w.to, range: w.range },
     current: current as unknown as OverviewData,
     previous: previous as unknown as OverviewData | null,
-    largest: (largest.rows[0] as LargestTransfer | undefined) ?? null,
-    alertCounts: alerts ? Object.fromEntries(alerts.rows.map((r) => [r.rule_code as string, r.n as number])) : null,
+    largest: largest ? { exchange: largest.exchange, direction: largest.direction, amount: decStr(largest.amount), block_time: largest.block_time, tx_hash: largest.tx_hash } : null,
+    alertCounts: alerts ? Object.fromEntries(alerts.map((r) => [r._id as string, r.n as number])) : null,
     dataThrough: through,
-    firstTransfer: first.rows.map((r) => ({ name: r.name as string, first: r.first as Date })),
+    firstTransfer: first.map((r) => ({ name: exchangeName.get(r._id as string) ?? (r._id as string), first: r.first as Date })).sort((x, y) => x.first.getTime() - y.first.getTime() || x.name.localeCompare(y.name)),
   });
 }

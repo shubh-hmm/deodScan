@@ -1,5 +1,6 @@
-import type pg from 'pg';
+import type { Db, Document } from 'mongodb';
 import { z } from 'zod';
+import { decStr, decStrOrNull, plainStr, toBound, toDecimal } from '@deod/db';
 
 // ---------------------------------------------------------------------------
 // Time ranges
@@ -18,9 +19,22 @@ export const RangeQuery = z.object({
 
 export interface Window { from: Date | null; to: Date; range: RangeKey; bucket: 'hour' | 'day' }
 
-export function resolveWindow(q: z.infer<typeof RangeQuery>, now = new Date()): Window {
+/**
+ * The end of the newest data that was fetched: the latest finished sync window (daily or "today so far"). Data arrives in batches, so the short
+ * periods (1h, 6h, 24h) count back from this moment instead of from the clock; otherwise they would often fall entirely into the not-yet-fetched gap.
+ * Null when nothing was synced yet.
+ */
+export async function dataAnchor(db: Db): Promise<Date | null> {
+  const r = await db.collection('sync_runs').find({ status: 'ok' }, { projection: { window_end: 1 } }).sort({ window_end: -1 }).limit(1).next();
+  return (r?.window_end as Date | undefined) ?? null;
+}
+
+const SHORT = new Set(['1h', '6h', '24h']);
+
+export function resolveWindow(q: z.infer<typeof RangeQuery>, now = new Date(), anchor: Date | null = null): Window {
   let from: Date | null;
   let to = now;
+  if (SHORT.has(q.range) && anchor && anchor < now) { now = anchor; to = anchor; }
   if (q.range === 'custom') {
     if (!q.from) throw new Error('custom range requires from');
     from = new Date(q.from);
@@ -37,54 +51,69 @@ export function resolveWindow(q: z.infer<typeof RangeQuery>, now = new Date()): 
 
 const EPOCH = new Date('2000-01-01T00:00:00Z');
 const lo = (w: Window) => w.from ?? EPOCH;
+/** The time part of a filter: block_time in [from, to). */
+const inWindow = (w: Window): Document => ({ block_time: { $gte: lo(w), $lt: w.to } });
+
+// ---------------------------------------------------------------------------
+// Aggregation building blocks
+// ---------------------------------------------------------------------------
+
+/** $sum of `field` over documents where `cond` holds. */
+const sumWhen = (cond: Document, field = '$amount'): Document => ({ $sum: { $cond: [cond, field, 0] } });
+/** Number of documents where `cond` holds. */
+const countWhen = (cond: Document): Document => ({ $sum: { $cond: [cond, 1, 0] } });
+/** Largest `field` where `cond` holds (null when none). */
+const maxWhen = (cond: Document, field = '$amount'): Document => ({ $max: { $cond: [cond, field, null] } });
+/** Distinct values of `field` where `cond` holds (collect with the null stand-in, drop it again in sizeOfSet). */
+const setWhen = (cond: Document, field: string): Document => ({ $addToSet: { $cond: [cond, field, null] } });
+const sizeOfSet = (name: string): Document => ({ $size: { $setDifference: [`$${name}`, [null]] } });
+const isDir = (d: 'IN' | 'OUT'): Document => ({ $eq: ['$direction', d] });
+const isSide = (s: 'BUY' | 'SELL'): Document => ({ $eq: ['$side', s] });
+
+const first = async (d: Db, collection: string, pipeline: Document[]): Promise<Document | undefined> =>
+  (await d.collection(collection).aggregate(pipeline, { allowDiskUse: true }).toArray())[0];
+
+/** Decimal sums -> API strings, "0" when nothing matched. */
+const sumStr = (v: unknown) => decStr(v ?? 0);
 
 // ---------------------------------------------------------------------------
 // Overview
 // ---------------------------------------------------------------------------
 
-export async function overview(db: pg.Pool, w: Window) {
-  const [byExchange, totals, swaps] = await Promise.all([
-    db.query(
-      `SELECT e.slug AS exchange, e.name,
-              coalesce(sum(f.amount) FILTER (WHERE f.direction = 'IN'), 0)::text  AS inflow,
-              coalesce(sum(f.amount) FILTER (WHERE f.direction = 'OUT'), 0)::text AS outflow,
-              (coalesce(sum(f.amount) FILTER (WHERE f.direction = 'IN'), 0)
-               - coalesce(sum(f.amount) FILTER (WHERE f.direction = 'OUT'), 0))::text AS net,
-              count(f.id) FILTER (WHERE f.direction = 'IN')  AS deposits,
-              count(f.id) FILTER (WHERE f.direction = 'OUT') AS withdrawals,
-              count(DISTINCT f.wallet_address) AS unique_wallets
-       FROM exchanges e
-       LEFT JOIN exchange_flows f ON f.exchange = e.slug AND f.block_time >= $1 AND f.block_time < $2
-       GROUP BY e.slug, e.name ORDER BY e.name`,
-      [lo(w), w.to],
-    ),
-    db.query(
-      `WITH act AS (
-         SELECT wallet_address AS addr, tx_hash, evt_index FROM exchange_flows WHERE block_time >= $1 AND block_time < $2
-         UNION ALL
-         SELECT trader_address, tx_hash, evt_index FROM dex_swaps WHERE block_time >= $1 AND block_time < $2
-       )
-       SELECT count(DISTINCT addr) AS unique_wallets,
-              (SELECT count(*) FROM token_transfers WHERE block_time >= $1 AND block_time < $2) AS exchange_transfers,
-              (SELECT coalesce(sum(amount) FILTER (WHERE direction = 'IN'), 0)::text FROM exchange_flows WHERE block_time >= $1 AND block_time < $2) AS inflow,
-              (SELECT coalesce(sum(amount) FILTER (WHERE direction = 'OUT'), 0)::text FROM exchange_flows WHERE block_time >= $1 AND block_time < $2) AS outflow,
-              (SELECT (coalesce(sum(amount) FILTER (WHERE direction = 'IN'), 0) - coalesce(sum(amount) FILTER (WHERE direction = 'OUT'), 0))::text
-                 FROM exchange_flows WHERE block_time >= $1 AND block_time < $2) AS net
-       FROM act`,
-      [lo(w), w.to],
-    ),
+export async function overview(db: Db, w: Window) {
+  const tm = inWindow(w);
+  const [exchanges, byExchange, totals, uniqueWallets, transfers, swaps] = await Promise.all([
+    db.collection('exchanges').find().sort({ name: 1 }).toArray(),
+    db.collection('exchange_flows').aggregate([
+      { $match: tm },
+      { $group: { _id: '$exchange', inflow: sumWhen(isDir('IN')), outflow: sumWhen(isDir('OUT')), deposits: countWhen(isDir('IN')), withdrawals: countWhen(isDir('OUT')), wallets: { $addToSet: '$wallet_address' } } },
+    ]).toArray(),
+    first(db, 'exchange_flows', [{ $match: tm }, { $group: { _id: null, inflow: sumWhen(isDir('IN')), outflow: sumWhen(isDir('OUT')) } }]),
+    first(db, 'exchange_flows', [
+      { $match: tm }, { $project: { addr: '$wallet_address' } },
+      { $unionWith: { coll: 'dex_swaps', pipeline: [{ $match: tm }, { $project: { addr: '$trader_address' } }] } },
+      { $group: { _id: '$addr' } }, { $count: 'n' },
+    ]),
+    db.collection('token_transfers').countDocuments(tm),
     pancakeStats(db, w, 'all'),
   ]);
-  const t = totals.rows[0];
+  const flows = new Map(byExchange.map((r) => [r._id as unknown as string, r]));
+  const rows = exchanges.map((e) => {
+    const f = flows.get(e._id as unknown as string);
+    const inflow = toDecimal(f?.inflow ?? 0), outflow = toDecimal(f?.outflow ?? 0);
+    return {
+      exchange: e._id as unknown as string, name: e.name as string, inflow: sumStr(inflow), outflow: sumStr(outflow), net: sumStr(inflow.minus(outflow)),
+      deposits: (f?.deposits as number) ?? 0, withdrawals: (f?.withdrawals as number) ?? 0, unique_wallets: (f?.wallets as string[] | undefined)?.length ?? 0,
+    };
+  });
+  const inflow = toDecimal(totals?.inflow ?? 0), outflow = toDecimal(totals?.outflow ?? 0);
   return {
     window: w,
-    exchanges: byExchange.rows,
+    exchanges: rows,
     totals: {
-      inflow: t.inflow as string,
-      outflow: t.outflow as string,
-      net: t.net as string,
-      uniqueWallets: Number(t.unique_wallets),
-      exchangeTransfers: Number(t.exchange_transfers),
+      inflow: sumStr(inflow), outflow: sumStr(outflow), net: sumStr(inflow.minus(outflow)),
+      uniqueWallets: (uniqueWallets?.n as number) ?? 0,
+      exchangeTransfers: transfers,
     },
     pancakeswap: swaps,
   };
@@ -94,78 +123,73 @@ export async function overview(db: pg.Pool, w: Window) {
 // Exchange flows
 // ---------------------------------------------------------------------------
 
-export async function exchangeStats(db: pg.Pool, exchange: string, w: Window) {
-  const { rows } = await db.query(
-    `SELECT coalesce(sum(amount) FILTER (WHERE direction = 'IN'), 0)::text  AS inflow,
-            coalesce(sum(amount) FILTER (WHERE direction = 'OUT'), 0)::text AS outflow,
-            (coalesce(sum(amount) FILTER (WHERE direction = 'IN'), 0)
-             - coalesce(sum(amount) FILTER (WHERE direction = 'OUT'), 0))::text AS net,
-            count(*) FILTER (WHERE direction = 'IN')  AS deposits,
-            count(*) FILTER (WHERE direction = 'OUT') AS withdrawals,
-            count(DISTINCT wallet_address) FILTER (WHERE direction = 'IN')  AS unique_depositors,
-            count(DISTINCT wallet_address) FILTER (WHERE direction = 'OUT') AS unique_withdrawers,
-            count(DISTINCT wallet_address) AS unique_wallets,
-            max(amount) FILTER (WHERE direction = 'IN')::text  AS largest_deposit,
-            max(amount) FILTER (WHERE direction = 'OUT')::text AS largest_withdrawal
-     FROM exchange_flows WHERE exchange = $1 AND block_time >= $2 AND block_time < $3`,
-    [exchange, lo(w), w.to],
-  );
-  return rows[0];
+export async function exchangeStats(db: Db, exchange: string, w: Window) {
+  const r = await first(db, 'exchange_flows', [
+    { $match: { exchange, ...inWindow(w) } },
+    {
+      $group: {
+        _id: null, inflow: sumWhen(isDir('IN')), outflow: sumWhen(isDir('OUT')), deposits: countWhen(isDir('IN')), withdrawals: countWhen(isDir('OUT')),
+        ins: setWhen(isDir('IN'), '$wallet_address'), outs: setWhen(isDir('OUT'), '$wallet_address'), all: { $addToSet: '$wallet_address' },
+        largest_deposit: maxWhen(isDir('IN')), largest_withdrawal: maxWhen(isDir('OUT')),
+      },
+    },
+    { $project: { inflow: 1, outflow: 1, deposits: 1, withdrawals: 1, unique_depositors: sizeOfSet('ins'), unique_withdrawers: sizeOfSet('outs'), unique_wallets: { $size: '$all' }, largest_deposit: 1, largest_withdrawal: 1 } },
+  ]);
+  const inflow = toDecimal(r?.inflow ?? 0), outflow = toDecimal(r?.outflow ?? 0);
+  return {
+    inflow: sumStr(inflow), outflow: sumStr(outflow), net: sumStr(inflow.minus(outflow)),
+    deposits: r?.deposits ?? 0, withdrawals: r?.withdrawals ?? 0,
+    unique_depositors: r?.unique_depositors ?? 0, unique_withdrawers: r?.unique_withdrawers ?? 0, unique_wallets: r?.unique_wallets ?? 0,
+    largest_deposit: decStrOrNull(r?.largest_deposit), largest_withdrawal: decStrOrNull(r?.largest_withdrawal),
+  };
 }
 
 /** Bucketed IN/OUT per exchange. Empty buckets are omitted; the chart fills gaps. */
-export async function flowSeries(db: pg.Pool, w: Window, exchange?: string) {
-  const { rows } = await db.query(
-    `SELECT date_trunc($4, block_time) AS bucket, exchange,
-            coalesce(sum(amount) FILTER (WHERE direction = 'IN'), 0)::text  AS inflow,
-            coalesce(sum(amount) FILTER (WHERE direction = 'OUT'), 0)::text AS outflow
-     FROM exchange_flows
-     WHERE block_time >= $1 AND block_time < $2 AND ($3::text IS NULL OR exchange = $3)
-     GROUP BY 1, 2 ORDER BY 1, 2`,
-    [lo(w), w.to, exchange ?? null, w.bucket],
-  );
-  return rows;
+export async function flowSeries(db: Db, w: Window, exchange?: string) {
+  const rows = await db.collection('exchange_flows').aggregate([
+    { $match: { ...inWindow(w), ...(exchange ? { exchange } : {}) } },
+    { $group: { _id: { bucket: { $dateTrunc: { date: '$block_time', unit: w.bucket, timezone: 'UTC' } }, exchange: '$exchange' }, inflow: sumWhen(isDir('IN')), outflow: sumWhen(isDir('OUT')) } },
+    { $sort: { '_id.bucket': 1, '_id.exchange': 1 } },
+  ]).toArray();
+  return rows.map((r) => ({ bucket: r._id.bucket as Date, exchange: r._id.exchange as string, inflow: sumStr(r.inflow), outflow: sumStr(r.outflow) }));
 }
 
 /** Exchange transfers per UTC hour of day (0-23) in the window, split IN / OUT. Hours with no activity are returned as zeros. */
-export async function hourlyActivity(db: pg.Pool, w: Window) {
-  const { rows } = await db.query(
-    `SELECT h.hour,
-            coalesce(f.inflows, 0)::int  AS inflows,
-            coalesce(f.outflows, 0)::int AS outflows
-     FROM generate_series(0, 23) AS h(hour)
-     LEFT JOIN (
-       SELECT extract(hour FROM block_time AT TIME ZONE 'UTC')::int AS hour,
-              count(*) FILTER (WHERE direction = 'IN')  AS inflows,
-              count(*) FILTER (WHERE direction = 'OUT') AS outflows
-       FROM exchange_flows WHERE block_time >= $1 AND block_time < $2 GROUP BY 1
-     ) f USING (hour)
-     ORDER BY h.hour`,
-    [lo(w), w.to],
-  );
-  return rows as { hour: number; inflows: number; outflows: number }[];
+export async function hourlyActivity(db: Db, w: Window) {
+  const rows = await db.collection('exchange_flows').aggregate([
+    { $match: inWindow(w) },
+    { $group: { _id: { $hour: { date: '$block_time', timezone: 'UTC' } }, inflows: countWhen(isDir('IN')), outflows: countWhen(isDir('OUT')) } },
+  ]).toArray();
+  const byHour = new Map(rows.map((r) => [r._id as unknown as number, r]));
+  return Array.from({ length: 24 }, (_, hour) => ({ hour, inflows: (byHour.get(hour)?.inflows as number) ?? 0, outflows: (byHour.get(hour)?.outflows as number) ?? 0 }));
 }
+
+const flowActivity = (f: Document) => ({
+  block_time: f.block_time as Date, type: 'exchange', venue: f.exchange as string, action: f.direction as string, wallet_address: f.wallet_address as string,
+  counterparty: f.exchange_address as string, deod_amount: decStr(f.amount), quote_amount: null as string | null, price: null as string | null, usd_value: null as string | null,
+  tx_hash: f.tx_hash as string, evt_index: f.evt_index as number, block_number: f.block_number as number,
+});
+const swapActivity = (s: Document) => ({
+  block_time: s.block_time as Date, type: 'swap', venue: `pancakeswap_v${s.version}`, action: s.side as string, wallet_address: s.trader_address as string,
+  counterparty: s.pool_address as string, deod_amount: decStr(s.deod_amount), quote_amount: decStr(s.quote_amount) as string | null, price: decStr(s.price, 30) as string | null,
+  usd_value: decStrOrNull(s.usd_value), tx_hash: s.tx_hash as string, evt_index: s.evt_index as number, block_number: s.block_number as number,
+});
+const newestFirst = (a: { block_time: Date; evt_index: number }, b: { block_time: Date; evt_index: number }) =>
+  b.block_time.getTime() - a.block_time.getTime() || b.evt_index - a.evt_index;
+const NEWEST: Document = { block_time: -1, evt_index: -1, _id: -1 };
 
 /**
  * Every monitored transaction in the window, newest first: exchange transfers (type "exchange") and PancakeSwap swaps
  * (type "swap") in one list with common columns. wallet_address is the counterparty wallet for an exchange transfer and the
  * transaction signer for a swap; counterparty is the exchange address or the pool. Quote/price/USD columns are empty for transfers.
  */
-export async function listActivity(db: pg.Pool, w: Window, limit: number) {
-  const { rows } = await db.query(
-    `SELECT * FROM (
-       SELECT block_time, 'exchange' AS type, exchange AS venue, direction AS action, wallet_address,
-              exchange_address AS counterparty, amount::text AS deod_amount, NULL::text AS quote_amount,
-              NULL::text AS price, NULL::text AS usd_value, tx_hash, evt_index, block_number
-       FROM exchange_flows WHERE block_time >= $1 AND block_time < $2
-       UNION ALL
-       SELECT block_time, 'swap', 'pancakeswap_v' || version, side, trader_address,
-              pool_address, deod_amount::text, quote_amount::text, price::text, usd_value::text, tx_hash, evt_index, block_number
-       FROM dex_swaps WHERE block_time >= $1 AND block_time < $2
-     ) t ORDER BY block_time DESC, evt_index DESC LIMIT $3`,
-    [lo(w), w.to, limit],
-  );
-  return rows;
+export async function listActivity(db: Db, w: Window, limit: number) {
+  const tm = inWindow(w);
+  const [flows, swaps] = await Promise.all([
+    db.collection('exchange_flows').find(tm).sort(NEWEST).limit(limit).toArray(),
+    db.collection('dex_swaps').find(tm).sort(NEWEST).limit(limit).toArray(),
+  ]);
+  return [...flows.map(flowActivity), ...swaps.map(swapActivity)].sort(newestFirst).slice(0, limit);
 }
 
 export const FlowFilter = z.object({
@@ -179,36 +203,38 @@ export const FlowFilter = z.object({
   offset: z.coerce.number().int().min(0).default(0),
 });
 
-export async function listFlows(db: pg.Pool, w: Window, f: z.infer<typeof FlowFilter>) {
-  // Qualified: a bare "amount" in ORDER BY would mean the text output column (amount::text) and sort "9.9" above "1270524.83".
-  const order = f.sort === 'amount' ? 'exchange_flows.amount DESC, block_time DESC' : 'block_time DESC, evt_index DESC';
-  const where = `block_time >= $1 AND block_time < $2
-    AND ($3::text IS NULL OR exchange = $3) AND ($4::text IS NULL OR direction = $4)
-    AND ($5::text IS NULL OR wallet_address = $5)
-    AND ($6::numeric IS NULL OR amount >= $6) AND ($7::numeric IS NULL OR amount <= $7)`;
-  const params = [lo(w), w.to, f.exchange ?? null, f.direction ?? null, f.wallet ?? null, f.min ?? null, f.max ?? null];
-  const [rows, count] = await Promise.all([
-    db.query(
-      `SELECT block_time, exchange, direction, wallet_address, exchange_address, amount::text, amount_raw::text,
-              tx_hash, evt_index, block_number
-       FROM exchange_flows WHERE ${where} ORDER BY ${order} LIMIT $8 OFFSET $9`,
-      [...params, f.limit, f.offset],
-    ),
-    db.query(`SELECT count(*)::int AS n FROM exchange_flows WHERE ${where}`, params),
-  ]);
-  return { total: count.rows[0].n as number, rows: rows.rows };
+/** amount >= min and/or amount <= max as a database filter on `field`. */
+function amountRange(field: string, min?: number, max?: number): Document {
+  if (min === undefined && max === undefined) return {};
+  return { [field]: { ...(min !== undefined ? { $gte: toBound(min) } : {}), ...(max !== undefined ? { $lte: toBound(max) } : {}) } };
 }
 
-export async function topExchangeWallets(db: pg.Pool, exchange: string, direction: 'IN' | 'OUT', w: Window, limit = 25) {
-  const { rows } = await db.query(
-    `SELECT wallet_address, sum(amount)::text AS total, count(*) AS transfers,
-            max(amount)::text AS largest, min(block_time) AS first_seen, max(block_time) AS last_seen
-     FROM exchange_flows
-     WHERE exchange = $1 AND direction = $2 AND block_time >= $3 AND block_time < $4
-     GROUP BY wallet_address ORDER BY sum(amount) DESC LIMIT $5`,
-    [exchange, direction, lo(w), w.to, limit],
-  );
-  return rows;
+export async function listFlows(db: Db, w: Window, f: z.infer<typeof FlowFilter>) {
+  const filter: Document = {
+    ...inWindow(w), ...(f.exchange ? { exchange: f.exchange } : {}), ...(f.direction ? { direction: f.direction } : {}),
+    ...(f.wallet ? { wallet_address: f.wallet } : {}), ...amountRange('amount', f.min, f.max),
+  };
+  // Sorted on the Decimal128 value itself, so 1,270,524.83 ranks above 9.9 (the old SQL once sorted the text form by mistake).
+  const sort: Document = f.sort === 'amount' ? { amount: -1, block_time: -1, _id: -1 } : NEWEST;
+  const col = db.collection('exchange_flows');
+  const [rows, total] = await Promise.all([col.find(filter).sort(sort).skip(f.offset).limit(f.limit).toArray(), col.countDocuments(filter)]);
+  return {
+    total,
+    rows: rows.map((r) => ({
+      block_time: r.block_time as Date, exchange: r.exchange as string, direction: r.direction as string, wallet_address: r.wallet_address as string,
+      exchange_address: r.exchange_address as string, amount: decStr(r.amount), amount_raw: r.amount_raw as string, tx_hash: r.tx_hash as string,
+      evt_index: r.evt_index as number, block_number: r.block_number as number,
+    })),
+  };
+}
+
+export async function topExchangeWallets(db: Db, exchange: string, direction: 'IN' | 'OUT', w: Window, limit = 25) {
+  const rows = await db.collection('exchange_flows').aggregate([
+    { $match: { exchange, direction, ...inWindow(w) } },
+    { $group: { _id: '$wallet_address', total: { $sum: '$amount' }, transfers: { $sum: 1 }, largest: { $max: '$amount' }, first_seen: { $min: '$block_time' }, last_seen: { $max: '$block_time' } } },
+    { $sort: { total: -1, _id: 1 } }, { $limit: limit },
+  ], { allowDiskUse: true }).toArray();
+  return rows.map((r) => ({ wallet_address: r._id as unknown as string, total: decStr(r.total), transfers: r.transfers as number, largest: decStr(r.largest), first_seen: r.first_seen as Date, last_seen: r.last_seen as Date }));
 }
 
 // ---------------------------------------------------------------------------
@@ -217,41 +243,42 @@ export async function topExchangeWallets(db: pg.Pool, exchange: string, directio
 
 export type VersionSel = '2' | '3' | 'all';
 
-export async function pancakeStats(db: pg.Pool, w: Window, version: VersionSel) {
-  const { rows } = await db.query(
-    `SELECT coalesce(sum(deod_amount), 0)::text AS deod_volume,
-            coalesce(sum(deod_amount) FILTER (WHERE side = 'BUY'), 0)::text  AS buy_deod,
-            coalesce(sum(deod_amount) FILTER (WHERE side = 'SELL'), 0)::text AS sell_deod,
-            coalesce(sum(usd_value), 0)::text AS usd_volume,
-            coalesce(sum(usd_value) FILTER (WHERE side = 'BUY'), 0)::text  AS buy_usd,
-            coalesce(sum(usd_value) FILTER (WHERE side = 'SELL'), 0)::text AS sell_usd,
-            count(*) AS swaps,
-            count(*) FILTER (WHERE side = 'BUY')  AS buys,
-            count(*) FILTER (WHERE side = 'SELL') AS sells,
-            count(DISTINCT trader_address) AS unique_wallets,
-            max(deod_amount)::text AS largest_swap_deod,
-            (array_agg(price ORDER BY block_number DESC, evt_index DESC))[1]::text AS last_price,
-            max(block_time) AS last_swap_time
-     FROM dex_swaps
-     WHERE block_time >= $1 AND block_time < $2 AND ($3::text = 'all' OR version = $3)`,
-    [lo(w), w.to, version],
-  );
-  return rows[0];
+export async function pancakeStats(db: Db, w: Window, version: VersionSel) {
+  const match: Document = { ...inWindow(w), ...(version === 'all' ? {} : { version }) };
+  const [r, last] = await Promise.all([
+    first(db, 'dex_swaps', [
+      { $match: match },
+      {
+        $group: {
+          _id: null, deod_volume: { $sum: '$deod_amount' }, buy_deod: sumWhen(isSide('BUY'), '$deod_amount'), sell_deod: sumWhen(isSide('SELL'), '$deod_amount'),
+          usd_volume: { $sum: '$usd_value' }, buy_usd: sumWhen(isSide('BUY'), '$usd_value'), sell_usd: sumWhen(isSide('SELL'), '$usd_value'),
+          swaps: { $sum: 1 }, buys: countWhen(isSide('BUY')), sells: countWhen(isSide('SELL')), wallets: { $addToSet: '$trader_address' },
+          largest_swap_deod: { $max: '$deod_amount' }, last_swap_time: { $max: '$block_time' },
+        },
+      },
+    ]),
+    db.collection('dex_swaps').find(match, { projection: { price: 1 } }).sort({ block_number: -1, evt_index: -1, _id: -1 }).limit(1).next(),
+  ]);
+  return {
+    deod_volume: sumStr(r?.deod_volume), buy_deod: sumStr(r?.buy_deod), sell_deod: sumStr(r?.sell_deod),
+    usd_volume: sumStr(r?.usd_volume), buy_usd: sumStr(r?.buy_usd), sell_usd: sumStr(r?.sell_usd),
+    swaps: (r?.swaps as number) ?? 0, buys: (r?.buys as number) ?? 0, sells: (r?.sells as number) ?? 0, unique_wallets: (r?.wallets as string[] | undefined)?.length ?? 0,
+    largest_swap_deod: decStrOrNull(r?.largest_swap_deod), last_price: last ? decStr(last.price, 30) : null, last_swap_time: (r?.last_swap_time as Date | undefined) ?? null,
+  };
 }
 
-export async function swapSeries(db: pg.Pool, w: Window, version: VersionSel) {
-  const { rows } = await db.query(
-    `SELECT date_trunc($4, block_time) AS bucket, version,
-            coalesce(sum(deod_amount) FILTER (WHERE side = 'BUY'), 0)::text  AS buy_deod,
-            coalesce(sum(deod_amount) FILTER (WHERE side = 'SELL'), 0)::text AS sell_deod,
-            coalesce(sum(usd_value), 0)::text AS usd_volume,
-            count(*) AS swaps
-     FROM dex_swaps
-     WHERE block_time >= $1 AND block_time < $2 AND ($3::text = 'all' OR version = $3)
-     GROUP BY 1, 2 ORDER BY 1, 2`,
-    [lo(w), w.to, version, w.bucket],
-  );
-  return rows;
+export async function swapSeries(db: Db, w: Window, version: VersionSel) {
+  const rows = await db.collection('dex_swaps').aggregate([
+    { $match: { ...inWindow(w), ...(version === 'all' ? {} : { version }) } },
+    {
+      $group: {
+        _id: { bucket: { $dateTrunc: { date: '$block_time', unit: w.bucket, timezone: 'UTC' } }, version: '$version' },
+        buy_deod: sumWhen(isSide('BUY'), '$deod_amount'), sell_deod: sumWhen(isSide('SELL'), '$deod_amount'), usd_volume: { $sum: '$usd_value' }, swaps: { $sum: 1 },
+      },
+    },
+    { $sort: { '_id.bucket': 1, '_id.version': 1 } },
+  ]).toArray();
+  return rows.map((r) => ({ bucket: r._id.bucket as Date, version: r._id.version as string, buy_deod: sumStr(r.buy_deod), sell_deod: sumStr(r.sell_deod), usd_volume: sumStr(r.usd_volume), swaps: r.swaps as number }));
 }
 
 export const SwapFilter = z.object({
@@ -265,23 +292,22 @@ export const SwapFilter = z.object({
   offset: z.coerce.number().int().min(0).default(0),
 });
 
-export async function listSwaps(db: pg.Pool, w: Window, f: z.infer<typeof SwapFilter>) {
-  // Qualified for the same reason as in listFlows: bare deod_amount would be the text output column.
-  const order = f.sort === 'amount' ? 'dex_swaps.deod_amount DESC, block_time DESC' : 'block_time DESC, evt_index DESC';
-  const where = `block_time >= $1 AND block_time < $2 AND ($3::text = 'all' OR version = $3)
-    AND ($4::text IS NULL OR side = $4) AND ($5::text IS NULL OR trader_address = $5)
-    AND ($6::numeric IS NULL OR deod_amount >= $6) AND ($7::numeric IS NULL OR deod_amount <= $7)`;
-  const params = [lo(w), w.to, f.version, f.side ?? null, f.wallet ?? null, f.min ?? null, f.max ?? null];
-  const [rows, count] = await Promise.all([
-    db.query(
-      `SELECT block_time, version, pool_address, side, trader_address, recipient_address,
-              deod_amount::text, quote_amount::text, price::text, usd_value::text, usd_basis, tx_hash, evt_index, block_number
-       FROM dex_swaps WHERE ${where} ORDER BY ${order} LIMIT $8 OFFSET $9`,
-      [...params, f.limit, f.offset],
-    ),
-    db.query(`SELECT count(*)::int AS n FROM dex_swaps WHERE ${where}`, params),
-  ]);
-  return { total: count.rows[0].n as number, rows: rows.rows };
+export async function listSwaps(db: Db, w: Window, f: z.infer<typeof SwapFilter>) {
+  const filter: Document = {
+    ...inWindow(w), ...(f.version === 'all' ? {} : { version: f.version }), ...(f.side ? { side: f.side } : {}),
+    ...(f.wallet ? { trader_address: f.wallet } : {}), ...amountRange('deod_amount', f.min, f.max),
+  };
+  const sort: Document = f.sort === 'amount' ? { deod_amount: -1, block_time: -1, _id: -1 } : NEWEST;
+  const col = db.collection('dex_swaps');
+  const [rows, total] = await Promise.all([col.find(filter).sort(sort).skip(f.offset).limit(f.limit).toArray(), col.countDocuments(filter)]);
+  return {
+    total,
+    rows: rows.map((r) => ({
+      block_time: r.block_time as Date, version: r.version as string, pool_address: r.pool_address as string, side: r.side as string, trader_address: r.trader_address as string,
+      recipient_address: (r.recipient_address as string | null) ?? null, deod_amount: decStr(r.deod_amount), quote_amount: decStr(r.quote_amount), price: decStr(r.price, 30),
+      usd_value: decStrOrNull(r.usd_value), usd_basis: (r.usd_basis as string | null) ?? null, tx_hash: r.tx_hash as string, evt_index: r.evt_index as number, block_number: r.block_number as number,
+    })),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -299,136 +325,174 @@ export const TopWalletQuery = z.object({
   limit: z.coerce.number().int().min(1).max(5000).default(50),
 });
 
-const SORT_SQL: Record<z.infer<typeof TopWalletQuery>['sort'], string> = {
+const SORT_FIELD: Record<z.infer<typeof TopWalletQuery>['sort'], string> = {
   volume: 'volume', transactions: 'transactions', largest: 'largest',
   sent_to_exchanges: 'sent_to_exchanges', received_from_exchanges: 'received_from_exchanges',
   buy: 'swap_buy', sell: 'swap_sell',
 };
 
-export async function topWallets(db: pg.Pool, w: Window, q: z.infer<typeof TopWalletQuery>) {
-  const { rows } = await db.query(
-    `WITH act AS (
-       SELECT wallet_address AS addr, block_time, tx_hash, amount, exchange AS src, direction AS dir, 'flow' AS kind
-       FROM exchange_flows WHERE block_time >= $1 AND block_time < $2
-       UNION ALL
-       SELECT trader_address, block_time, tx_hash, deod_amount, 'pancakeswap_v' || version, side, 'swap'
-       FROM dex_swaps WHERE block_time >= $1 AND block_time < $2
-     ),
-     filtered AS (
-       SELECT * FROM act
-       WHERE $3 = 'all' OR src = $3 OR ($3 = 'pancakeswap' AND kind = 'swap')
-     )
-     SELECT * FROM (
-     SELECT addr AS wallet_address,
-            sum(amount) AS volume,
-            count(DISTINCT tx_hash) AS transactions,
-            max(amount) AS largest,
-            coalesce(sum(amount) FILTER (WHERE kind = 'flow' AND dir = 'IN'), 0)  AS sent_to_exchanges,
-            coalesce(sum(amount) FILTER (WHERE kind = 'flow' AND dir = 'OUT'), 0) AS received_from_exchanges,
-            coalesce(sum(amount) FILTER (WHERE kind = 'swap' AND dir = 'BUY'), 0)  AS swap_buy,
-            coalesce(sum(amount) FILTER (WHERE kind = 'swap' AND dir = 'SELL'), 0) AS swap_sell,
-            min(block_time) AS first_seen, max(block_time) AS last_seen
-     FROM filtered
-     GROUP BY addr
-     HAVING ($4::numeric IS NULL OR sum(amount) >= $4) AND ($5::int IS NULL OR count(DISTINCT tx_hash) >= $5)
-     ) ranked
-     ORDER BY ${SORT_SQL[q.sort]} DESC, wallet_address
-     LIMIT $6`,
-    [lo(w), w.to, q.source, q.minVolume ?? null, q.minTx ?? null, q.limit],
-  );
-  return rows;
+export async function topWallets(db: Db, w: Window, q: z.infer<typeof TopWalletQuery>) {
+  const tm = inWindow(w);
+  // Which collections feed the ranking: a source is "all", "pancakeswap" (both pools), "pancakeswap_v2" / "_v3", or one exchange slug.
+  const isPancake = q.source === 'pancakeswap' || q.source.startsWith('pancakeswap_v');
+  const useFlows = q.source === 'all' || !isPancake;
+  const useSwaps = q.source === 'all' || isPancake;
+  const flowMatch: Document = { ...tm, ...(q.source === 'all' ? {} : { exchange: q.source }) };
+  const swapMatch: Document = { ...tm, ...(q.source === 'pancakeswap_v2' ? { version: '2' } : q.source === 'pancakeswap_v3' ? { version: '3' } : {}) };
+  const flowProject: Document = { $project: { addr: '$wallet_address', tx_hash: 1, block_time: 1, amount: 1, kind: { $literal: 'flow' }, dir: '$direction' } };
+  const swapProject: Document = { $project: { addr: '$trader_address', tx_hash: 1, block_time: 1, amount: '$deod_amount', kind: { $literal: 'swap' }, dir: '$side' } };
+  const kindDir = (kind: string, dir: string): Document => ({ $and: [{ $eq: ['$kind', kind] }, { $eq: ['$dir', dir] }] });
+
+  const head: Document[] = useFlows
+    ? [{ $match: flowMatch }, flowProject, ...(useSwaps ? [{ $unionWith: { coll: 'dex_swaps', pipeline: [{ $match: swapMatch }, swapProject] } }] : [])]
+    : [{ $match: swapMatch }, swapProject];
+  const having: Document = {
+    ...(q.minVolume !== undefined ? { volume: { $gte: toBound(q.minVolume) } } : {}),
+    ...(q.minTx !== undefined ? { transactions: { $gte: q.minTx } } : {}),
+  };
+  const sortField = SORT_FIELD[q.sort];
+  const collection = useFlows ? 'exchange_flows' : 'dex_swaps';
+  const rows = await db.collection(collection).aggregate([
+    ...head,
+    {
+      $group: {
+        _id: '$addr', volume: { $sum: '$amount' }, txs: { $addToSet: '$tx_hash' }, largest: { $max: '$amount' },
+        sent_to_exchanges: sumWhen(kindDir('flow', 'IN')), received_from_exchanges: sumWhen(kindDir('flow', 'OUT')),
+        swap_buy: sumWhen(kindDir('swap', 'BUY')), swap_sell: sumWhen(kindDir('swap', 'SELL')),
+        first_seen: { $min: '$block_time' }, last_seen: { $max: '$block_time' },
+      },
+    },
+    { $addFields: { transactions: { $size: '$txs' } } },
+    ...(Object.keys(having).length ? [{ $match: having }] : []),
+    { $sort: { [sortField]: -1, _id: 1 } },
+    { $limit: q.limit },
+  ], { allowDiskUse: true }).toArray();
+  return rows.map((r) => ({
+    wallet_address: r._id as unknown as string, volume: decStr(r.volume), transactions: r.transactions as number, largest: decStr(r.largest),
+    sent_to_exchanges: decStr(r.sent_to_exchanges), received_from_exchanges: decStr(r.received_from_exchanges),
+    swap_buy: decStr(r.swap_buy), swap_sell: decStr(r.swap_sell), first_seen: r.first_seen as Date, last_seen: r.last_seen as Date,
+  }));
 }
 
-export async function walletProfile(db: pg.Pool, address: string) {
+export async function walletProfile(db: Db, address: string) {
   const [summary, exchanges, swaps, asRecipient] = await Promise.all([
-    db.query(
-      `SELECT address, first_seen, last_seen, transaction_count, total_deod_volume::text, sent_to_exchanges::text,
-              received_from_exchanges::text, exchange_transfer_count, swap_buy_deod::text, swap_sell_deod::text,
-              swap_count, swap_usd_volume::text, largest_transfer::text, largest_swap::text
-       FROM wallet_summary WHERE address = $1`,
-      [address],
-    ),
-    db.query(
-      `SELECT exchange, direction, sum(amount)::text AS total, count(*) AS transfers, max(amount)::text AS largest,
-              min(block_time) AS first_seen, max(block_time) AS last_seen
-       FROM exchange_flows WHERE wallet_address = $1 GROUP BY 1, 2 ORDER BY 1, 2`,
-      [address],
-    ),
-    db.query(
-      `SELECT version, side, sum(deod_amount)::text AS deod, sum(usd_value)::text AS usd, count(*) AS swaps,
-              max(deod_amount)::text AS largest
-       FROM dex_swaps WHERE trader_address = $1 GROUP BY 1, 2 ORDER BY 1, 2`,
-      [address],
-    ),
-    db.query(`SELECT count(*)::int AS n FROM dex_swaps WHERE recipient_address = $1 AND trader_address <> $1`, [address]),
+    db.collection('wallet_summary').findOne({ _id: address as never }),
+    db.collection('exchange_flows').aggregate([
+      { $match: { wallet_address: address } },
+      { $group: { _id: { exchange: '$exchange', direction: '$direction' }, total: { $sum: '$amount' }, transfers: { $sum: 1 }, largest: { $max: '$amount' }, first_seen: { $min: '$block_time' }, last_seen: { $max: '$block_time' } } },
+      { $sort: { '_id.exchange': 1, '_id.direction': 1 } },
+    ]).toArray(),
+    db.collection('dex_swaps').aggregate([
+      { $match: { trader_address: address } },
+      { $group: { _id: { version: '$version', side: '$side' }, deod: { $sum: '$deod_amount' }, usd: { $sum: '$usd_value' }, swaps: { $sum: 1 }, largest: { $max: '$deod_amount' } } },
+      { $sort: { '_id.version': 1, '_id.side': 1 } },
+    ]).toArray(),
+    db.collection('dex_swaps').countDocuments({ recipient_address: address, trader_address: { $ne: address } }),
   ]);
   return {
     address,
-    summary: summary.rows[0] ?? null,
-    exchanges: exchanges.rows,
-    swaps: swaps.rows,
-    swapsAsRecipientOnly: asRecipient.rows[0].n as number,
+    summary: summary ? {
+      address, first_seen: summary.first_seen as Date, last_seen: summary.last_seen as Date, transaction_count: summary.transaction_count as number,
+      total_deod_volume: decStr(summary.total_deod_volume), sent_to_exchanges: decStr(summary.sent_to_exchanges), received_from_exchanges: decStr(summary.received_from_exchanges),
+      exchange_transfer_count: summary.exchange_transfer_count as number, swap_buy_deod: decStr(summary.swap_buy_deod), swap_sell_deod: decStr(summary.swap_sell_deod),
+      swap_count: summary.swap_count as number, swap_usd_volume: decStr(summary.swap_usd_volume), largest_transfer: decStrOrNull(summary.largest_transfer), largest_swap: decStrOrNull(summary.largest_swap),
+    } : null,
+    exchanges: exchanges.map((r) => ({ exchange: r._id.exchange as string, direction: r._id.direction as string, total: decStr(r.total), transfers: r.transfers as number, largest: decStr(r.largest), first_seen: r.first_seen as Date, last_seen: r.last_seen as Date })),
+    swaps: swaps.map((r) => ({ version: r._id.version as string, side: r._id.side as string, deod: decStr(r.deod), usd: decStr(r.usd), swaps: r.swaps as number, largest: decStr(r.largest) })),
+    swapsAsRecipientOnly: asRecipient,
   };
 }
 
-export async function walletTimeline(db: pg.Pool, address: string, limit = 200, offset = 0) {
-  const { rows } = await db.query(
-    `SELECT * FROM (
-       SELECT block_time, 'exchange' AS kind, exchange AS venue, direction AS action, amount::text AS deod_amount,
-              NULL::text AS usd_value, exchange_address AS counterparty, tx_hash, evt_index, block_number
-       FROM exchange_flows WHERE wallet_address = $1
-       UNION ALL
-       SELECT block_time, 'swap', 'pancakeswap_v' || version, side, deod_amount::text, usd_value::text,
-              pool_address, tx_hash, evt_index, block_number
-       FROM dex_swaps WHERE trader_address = $1
-     ) t ORDER BY block_time DESC, evt_index DESC LIMIT $2 OFFSET $3`,
-    [address, limit, offset],
-  );
-  return rows;
+export async function walletTimeline(db: Db, address: string, limit = 200, offset = 0) {
+  const need = offset + limit;
+  const [flows, swaps] = await Promise.all([
+    db.collection('exchange_flows').find({ wallet_address: address }).sort(NEWEST).limit(need).toArray(),
+    db.collection('dex_swaps').find({ trader_address: address }).sort(NEWEST).limit(need).toArray(),
+  ]);
+  const merged = [
+    ...flows.map((f) => ({
+      block_time: f.block_time as Date, kind: 'exchange', venue: f.exchange as string, action: f.direction as string, deod_amount: decStr(f.amount),
+      usd_value: null as string | null, counterparty: f.exchange_address as string, tx_hash: f.tx_hash as string, evt_index: f.evt_index as number, block_number: f.block_number as number,
+    })),
+    ...swaps.map((s) => ({
+      block_time: s.block_time as Date, kind: 'swap', venue: `pancakeswap_v${s.version}`, action: s.side as string, deod_amount: decStr(s.deod_amount),
+      usd_value: decStrOrNull(s.usd_value), counterparty: s.pool_address as string, tx_hash: s.tx_hash as string, evt_index: s.evt_index as number, block_number: s.block_number as number,
+    })),
+  ];
+  return merged.sort(newestFirst).slice(offset, offset + limit);
 }
 
 // ---------------------------------------------------------------------------
 // Search, labels, sync status
 // ---------------------------------------------------------------------------
 
-export async function search(db: pg.Pool, q: string) {
+export async function search(db: Db, q: string) {
   const s = q.trim().toLowerCase();
   if (/^0x[0-9a-f]{64}$/.test(s)) {
     const [f, sw] = await Promise.all([
-      db.query(`SELECT 'flow' AS kind, block_time, exchange AS venue, direction AS action, wallet_address, amount::text, tx_hash FROM exchange_flows WHERE tx_hash = $1`, [s]),
-      db.query(`SELECT 'swap' AS kind, block_time, 'pancakeswap_v' || version AS venue, side AS action, trader_address AS wallet_address, deod_amount::text AS amount, tx_hash FROM dex_swaps WHERE tx_hash = $1`, [s]),
+      db.collection('exchange_flows').find({ tx_hash: s }).toArray(),
+      db.collection('dex_swaps').find({ tx_hash: s }).toArray(),
     ]);
-    return { type: 'tx' as const, results: [...f.rows, ...sw.rows] };
+    return {
+      type: 'tx' as const,
+      results: [
+        ...f.map((r) => ({ kind: 'flow', block_time: r.block_time as Date, venue: r.exchange as string, action: r.direction as string, wallet_address: r.wallet_address as string, amount: decStr(r.amount), tx_hash: r.tx_hash as string })),
+        ...sw.map((r) => ({ kind: 'swap', block_time: r.block_time as Date, venue: `pancakeswap_v${r.version}`, action: r.side as string, wallet_address: r.trader_address as string, amount: decStr(r.deod_amount), tx_hash: r.tx_hash as string })),
+      ],
+    };
   }
   if (/^0x[0-9a-f]{40}$/.test(s)) {
-    const { rows } = await db.query(`SELECT 1 FROM wallet_summary WHERE address = $1`, [s]);
-    return { type: 'address' as const, known: rows.length > 0, address: s };
+    const known = (await db.collection('wallet_summary').countDocuments({ _id: s as never }, { limit: 1 })) > 0;
+    return { type: 'address' as const, known, address: s };
   }
   return { type: 'invalid' as const };
 }
 
-export async function addressBook(db: pg.Pool) {
-  const [ex, pools] = await Promise.all([
-    db.query(`SELECT a.address, a.exchange, e.name, a.address_type, a.verified, a.monitored, a.dune_label, a.notes, a.source
-              FROM exchange_addresses a JOIN exchanges e ON e.slug = a.exchange ORDER BY e.name, a.address`),
-    db.query(`SELECT address, version, pair, fee_tier, quote_symbol, verification FROM dex_pools ORDER BY version`),
+export async function addressBook(db: Db) {
+  const [exchanges, addresses, pools] = await Promise.all([
+    db.collection('exchanges').find().toArray(),
+    db.collection('exchange_addresses').find().toArray(),
+    db.collection('dex_pools').find().sort({ version: 1 }).toArray(),
   ]);
-  return { exchangeAddresses: ex.rows, pools: pools.rows };
+  const names = new Map(exchanges.map((e) => [e._id as unknown as string, e.name as string]));
+  const rows = addresses
+    .filter((a) => names.has(a.exchange))
+    .map((a) => ({
+      address: a.address as string, exchange: a.exchange as string, name: names.get(a.exchange)!, address_type: a.address_type as string, verified: a.verified as boolean,
+      monitored: a.monitored as boolean, dune_label: (a.dune_label as string | null) ?? null, notes: (a.notes as string | null) ?? null, source: a.source as string,
+    }))
+    .sort((x, y) => (x.name < y.name ? -1 : x.name > y.name ? 1 : x.address < y.address ? -1 : 1));
+  return {
+    exchangeAddresses: rows,
+    pools: pools.map((p) => ({ address: p.address as string, version: p.version as string, pair: p.pair as string, fee_tier: (p.fee_tier as number | null) ?? null, quote_symbol: p.quote_symbol as string, verification: (p.verification as string | null) ?? null })),
+  };
 }
 
 /** End of the window up to which every query is fully synced (daily sync: midnight UTC of the last completed day). */
-export async function dataThrough(db: pg.Pool): Promise<Date | null> {
-  const { rows } = await db.query<{ t: Date | null }>(`SELECT min(synced_until) AS t FROM dune_sync_state`);
-  return rows[0]?.t ?? null;
+export async function dataThrough(db: Db): Promise<Date | null> {
+  const r = await first(db, 'dune_sync_state', [{ $group: { _id: null, t: { $min: '$synced_until' } } }]);
+  return (r?.t as Date | null | undefined) ?? null;
 }
 
-export async function syncStatus(db: pg.Pool) {
-  const [state, runs, rejections] = await Promise.all([
-    db.query(`SELECT query_name, status, last_block_time, synced_until, last_sync_at, credits_total::text, error, backfill_from, backfill_cursor FROM dune_sync_state ORDER BY query_name`),
-    db.query(`SELECT id, query_name, mode, window_start, window_end, started_at, finished_at, status, rows_fetched, rows_inserted, rows_duplicate, rows_rejected, credits::text, error FROM sync_runs ORDER BY id DESC LIMIT 25`),
-    db.query(`SELECT count(*)::int AS n FROM ingest_rejections`),
+export async function syncStatus(db: Db) {
+  const [state, runs, rejected] = await Promise.all([
+    db.collection('dune_sync_state').find().sort({ _id: 1 }).toArray(),
+    db.collection('sync_runs').find().sort({ _id: -1 }).limit(25).toArray(),
+    db.collection('ingest_rejections').countDocuments(),
   ]);
-  return { queries: state.rows, recentRuns: runs.rows, rejectedRows: rejections.rows[0].n as number };
+  return {
+    queries: state.map((s) => ({
+      query_name: s._id as unknown as string, status: s.status as string, last_block_time: (s.last_block_time as Date | null) ?? null, synced_until: (s.synced_until as Date | null) ?? null,
+      last_sync_at: (s.last_sync_at as Date | null) ?? null, credits_total: plainStr(s.credits_total ?? 0), error: (s.error as string | null) ?? null,
+      backfill_from: (s.backfill_from as Date | null) ?? null, backfill_cursor: (s.backfill_cursor as Date | null) ?? null,
+    })),
+    recentRuns: runs.map((r) => ({
+      id: r._id as unknown as number, query_name: r.query_name as string, mode: r.mode as string, window_start: r.window_start as Date, window_end: r.window_end as Date, started_at: r.started_at as Date,
+      finished_at: (r.finished_at as Date | null) ?? null, status: r.status as string, rows_fetched: (r.rows_fetched as number | null) ?? null, rows_inserted: (r.rows_inserted as number | null) ?? null,
+      rows_duplicate: (r.rows_duplicate as number | null) ?? null, rows_rejected: (r.rows_rejected as number | null) ?? null, credits: plainStr(r.credits), error: (r.error as string | null) ?? null,
+    })),
+    rejectedRows: rejected,
+  };
 }
 
 export * from './alerts.js';

@@ -2,9 +2,9 @@
 // handleUpdate() holds all the rules and takes an injected Telegram client, so it is tested without the network. startTelegramBot() is the
 // polling loop that feeds it (getUpdates, because a local or private server has no public address for webhooks).
 import { createHash, timingSafeEqual } from 'node:crypto';
-import type pg from 'pg';
+import type { Db, Document } from 'mongodb';
 import { loadConfig, loadEnv } from '@deod/config';
-import { formatAlertMessage, type AlertForMessage } from '../alerts/notify.js';
+import { formatAlertMessage, toAlertForMessage } from '../alerts/notify.js';
 import { TOKEN_SHAPE, TelegramError, telegramApi, type InlineKeyboard, type TelegramApi, type TgCallback, type TgMessage, type TgUpdate } from './api.js';
 
 export const MAX_FAILED_ATTEMPTS = 5;
@@ -15,7 +15,7 @@ export const GLOBAL_FAILS_PER_HOUR = 30;
 export const MIN_ACCESS_CODE_LENGTH = 8;
 
 export interface BotContext {
-  db: pg.Pool;
+  db: Db;
   api: TelegramApi;
   accessCode: string;
   now?: () => Date;
@@ -52,25 +52,35 @@ const safeEqual = (a: string, b: string) => timingSafeEqual(sha(a), sha(b));
 interface UserRow { chat_id: string; status: 'new' | 'authorized' | 'subscribed' | 'blocked'; failed_attempts: number; locked_until: Date | null }
 
 async function loadUser(ctx: BotContext, chatId: number, from?: { username?: string; first_name?: string }): Promise<UserRow> {
-  const { rows } = await ctx.db.query(
-    `INSERT INTO telegram_users (chat_id, username, first_name) VALUES ($1, $2, $3)
-     ON CONFLICT (chat_id) DO UPDATE SET username = COALESCE($2, telegram_users.username), first_name = COALESCE($3, telegram_users.first_name), updated_at = now()
-     RETURNING chat_id::text AS chat_id, status, failed_attempts, locked_until`,
-    [chatId, from?.username ?? null, from?.first_name ?? null],
+  // A name is only overwritten when Telegram sent one (COALESCE); a new person starts as "new" with nothing recorded.
+  const names: Document = {};
+  if (from?.username) names.username = from.username;
+  if (from?.first_name) names.first_name = from.first_name;
+  const doc = await ctx.db.collection('telegram_users').findOneAndUpdate(
+    { _id: chatId as never },
+    {
+      $set: { chat_id: chatId, updated_at: new Date(), ...names },
+      $setOnInsert: {
+        status: 'new', failed_attempts: 0, locked_until: null, authorized_at: null, subscribed_at: null, created_at: new Date(),
+        ...(names.username ? {} : { username: null }), ...(names.first_name ? {} : { first_name: null }),
+      },
+    },
+    { upsert: true, returnDocument: 'after' },
   );
-  return rows[0] as UserRow;
+  return { chat_id: String(chatId), status: doc!.status, failed_attempts: doc!.failed_attempts, locked_until: doc!.locked_until ?? null };
 }
 
-const setStatus = (ctx: BotContext, chatId: number, status: string, extra = '') =>
-  ctx.db.query(`UPDATE telegram_users SET status = $2, updated_at = now() ${extra} WHERE chat_id = $1`, [chatId, status]);
+const setStatus = (ctx: BotContext, chatId: number, status: string, extra: Document = {}) =>
+  ctx.db.collection('telegram_users').updateOne({ _id: chatId as never }, { $set: { status, updated_at: new Date(), ...extra } });
 
 async function latestAlerts(ctx: BotContext): Promise<string[]> {
   const cfg = loadConfig();
-  const { rows } = await ctx.db.query(
-    `SELECT a.occurred_at, a.exchange, a.direction, a.amount::text AS amount, a.usd_value::text AS usd_value, a.sender, a.recipient, a.wallet_address, a.tx_hash,
-            a.block_number, a.details, a.severity, a.rule_code, r.name AS rule_name
-     FROM alerts a JOIN alert_rules r ON r.code = a.rule_code ORDER BY a.occurred_at DESC, a.id DESC LIMIT 5`);
-  return rows.map((a) => formatAlertMessage(a as AlertForMessage, cfg.chain.explorer_tx_url, (s) => cfg.exchanges[s]?.name ?? s));
+  const [rows, rules] = await Promise.all([
+    ctx.db.collection('alerts').find().sort({ occurred_at: -1, _id: -1 }).limit(5).toArray(),
+    ctx.db.collection('alert_rules').find().toArray(),
+  ]);
+  const names = new Map(rules.map((r) => [r._id as unknown as string, r.name as string]));
+  return rows.map((a) => formatAlertMessage(toAlertForMessage(a, names.get(a.rule_code) ?? a.rule_code), cfg.chain.explorer_tx_url, (s) => cfg.exchanges[s]?.name ?? s));
 }
 
 /** Checks a message that was sent while the person has not yet been let in. */
@@ -85,22 +95,22 @@ async function attemptCode(ctx: BotContext, msg: TgMessage, user: UserRow, text:
   if (fails.length >= GLOBAL_FAILS_PER_HOUR) return ctx.api.sendMessage(chatId, T.paused);
 
   if (safeEqual(text, ctx.accessCode)) {
-    await setStatus(ctx, chatId, 'authorized', ', failed_attempts = 0, locked_until = NULL, authorized_at = now()');
+    await setStatus(ctx, chatId, 'authorized', { failed_attempts: 0, locked_until: null, authorized_at: new Date() });
     await ctx.api.deleteMessage(chatId, msg.message_id).catch(() => {});             // best effort: remove the code from the chat
     return ctx.api.sendMessage(chatId, T.askAlerts, ASK_ALERTS);
   }
   fails.push(now.getTime());
   const attempts = user.failed_attempts + 1;
   if (attempts >= MAX_FAILED_ATTEMPTS) {
-    await ctx.db.query(`UPDATE telegram_users SET failed_attempts = 0, locked_until = $2, updated_at = now() WHERE chat_id = $1`, [chatId, new Date(now.getTime() + LOCK_MINUTES * 60_000)]);
+    await ctx.db.collection('telegram_users').updateOne({ _id: chatId as never }, { $set: { failed_attempts: 0, locked_until: new Date(now.getTime() + LOCK_MINUTES * 60_000), updated_at: new Date() } });
     return ctx.api.sendMessage(chatId, `${T.invalid} Too many wrong codes: please try again in ${LOCK_MINUTES} min.`);
   }
-  await ctx.db.query(`UPDATE telegram_users SET failed_attempts = $2, updated_at = now() WHERE chat_id = $1`, [chatId, attempts]);
+  await ctx.db.collection('telegram_users').updateOne({ _id: chatId as never }, { $set: { failed_attempts: attempts, updated_at: new Date() } });
   return ctx.api.sendMessage(chatId, T.invalid);
 }
 
 async function subscribe(ctx: BotContext, chatId: number, user: UserRow) {
-  if (user.status !== 'subscribed') await setStatus(ctx, chatId, 'subscribed', ', subscribed_at = now()');
+  if (user.status !== 'subscribed') await setStatus(ctx, chatId, 'subscribed', { subscribed_at: new Date() });
   return ctx.api.sendMessage(chatId, T.subscribed, mainMenu(true));
 }
 
@@ -134,7 +144,7 @@ async function onMessage(ctx: BotContext, msg: TgMessage) {
       if (on) return ctx.api.sendMessage(chatId, 'You are already receiving alerts.', mainMenu(true));
       return ctx.api.sendMessage(chatId, T.askAlerts, ASK_ALERTS);
     case '/stop':
-      if (on) await setStatus(ctx, chatId, 'authorized', ', subscribed_at = NULL');
+      if (on) await setStatus(ctx, chatId, 'authorized', { subscribed_at: null });
       return ctx.api.sendMessage(chatId, T.stopped, mainMenu(false));
     case '/status':
       return ctx.api.sendMessage(chatId, statusText(on), mainMenu(on));
@@ -159,7 +169,7 @@ async function onCallback(ctx: BotContext, cb: TgCallback) {
     case 'sub:yes': return subscribe(ctx, chat.id, user);
     case 'sub:no': return ctx.api.sendMessage(chat.id, on ? 'Alerts stay on.' : T.declined, mainMenu(on));
     case 'sub:off':
-      if (on) await setStatus(ctx, chat.id, 'authorized', ', subscribed_at = NULL');
+      if (on) await setStatus(ctx, chat.id, 'authorized', { subscribed_at: null });
       return ctx.api.sendMessage(chat.id, T.stopped, mainMenu(false));
     case 'menu:latest': return sendLatest(ctx, chat.id, on);
     default: return ctx.api.sendMessage(chat.id, statusText(on), mainMenu(on));      // menu:status
@@ -178,7 +188,7 @@ export interface BotLogger { info(o: object, m: string): void; warn(o: object, m
 const sleep = (ms: number, signal: AbortSignal) => new Promise<void>((r) => { const t = setTimeout(r, ms); signal.addEventListener('abort', () => { clearTimeout(t); r(); }, { once: true }); });
 
 /** Long-polls Telegram and feeds every update to handleUpdate. Returns a handle whose stop() ends the loop promptly. */
-export function startTelegramBot(db: pg.Pool, api: TelegramApi, accessCode: string, log: BotLogger) {
+export function startTelegramBot(db: Db, api: TelegramApi, accessCode: string, log: BotLogger) {
   const stopper = new AbortController();
   const ctx: BotContext = { db, api, accessCode, recentFails: [] };
   let offset: number | undefined;
@@ -223,7 +233,7 @@ export function startTelegramBot(db: pg.Pool, api: TelegramApi, accessCode: stri
  * Starts the bot from backend/.env (TELEGRAM_BOT_TOKEN and TELEGRAM_ACCESS_CODE). Returns null, with a plain explanation in the log, when it is
  * not configured or a value is wrong: a mistake here can only switch the bot off, never stop the backend from starting.
  */
-export function startBotFromEnv(db: pg.Pool, log: BotLogger) {
+export function startBotFromEnv(db: Db, log: BotLogger) {
   const { TELEGRAM_BOT_TOKEN: token, TELEGRAM_ACCESS_CODE: code } = loadEnv();
   if (!token) return null;
   if (!TOKEN_SHAPE.test(token)) { log.warn({}, 'telegram bot is off: TELEGRAM_BOT_TOKEN does not look right (it should be like 123456789:AAH...)'); return null; }

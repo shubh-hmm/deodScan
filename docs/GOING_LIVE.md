@@ -7,7 +7,7 @@ log of 2026-10-22, "Platform robustness pass"). Items marked **must** can cost m
 
 | Part | What it is | Needs to stay on? | Notes |
 |---|---|---|---|
-| Database | PostgreSQL | Yes | Use a managed database (Neon, Supabase, Railway, RDS...) or your own server. Not the embedded development one. |
+| Database | MongoDB | Yes | Use MongoDB Atlas (managed, has automatic backups) or your own MongoDB 6.0+ server (a Docker `mongo:8` is in `backend/docker-compose.yml`). Not the local development one that `npm run dev` starts. Turn on authentication and keep the port closed to the internet. |
 | API | `backend/api` (Fastify) | Yes | Also reads the Telegram bot's messages, so it must be a normal always-on process, not a serverless function. Run **one** copy per bot. |
 | Worker | `backend/worker` | Yes | Fetches each finished day from Dune once. Only this process (and the "Update today" button) spends Dune credits. |
 | Dashboard | `frontend` (Next.js) | Yes | Vercel works for this part alone. |
@@ -18,7 +18,7 @@ Backend (`backend/.env` on the server, never in git):
 
 | Setting | Why |
 |---|---|
-| `DATABASE_URL` | the production database |
+| `MONGODB_URI` | the production database, e.g. `mongodb+srv://user:password@cluster0.xxxxx.mongodb.net/deod_monitor`. Create a user that can read and write only that database |
 | `DUNE_API_KEY` | the worker; **`DUNE_MAX_CREDITS_PER_RUN`** (default 30) and **`DUNE_MAX_RUN_MINUTES`** (default 10) stop and cancel a runaway query |
 | `INTERNAL_API_KEY` | **must**: a long random string. The API refuses to start on a non-local `API_HOST` without it. Put the same value in the dashboard's settings |
 | `API_HOST` | `127.0.0.1` when the dashboard is on the same machine; otherwise the private address, and keep the port closed to the internet |
@@ -71,8 +71,8 @@ Start the database first, then the API, then the worker, then the dashboard.
 The data can be re-fetched from Dune, but it costs credits and the earlier history depends on the load dates. Back the database up:
 
 - A managed database: switch on its automatic daily backups and point-in-time recovery.
-- Your own server: a nightly `pg_dump --format=custom --file deod-$(date +%F).dump "$DATABASE_URL"`, kept for at least 14 days and copied off the machine.
-- **Test a restore once** (`pg_restore --create --dbname=postgres deod-....dump` into a scratch server) before you need it.
+- Your own server: a nightly `mongodump --uri "$MONGODB_URI" --gzip --archive=deod-$(date +%F).archive.gz` (MongoDB Database Tools), kept for at least 14 days and copied off the machine.
+- **Test a restore once** (`mongorestore --uri "mongodb://127.0.0.1:27017" --gzip --archive=deod-....archive.gz --nsFrom 'deod_monitor.*' --nsTo 'deod_restore_test.*'` into a scratch server or database) before you need it, then run `npm run audit -- --no-chain` against it.
 
 ## 6. Monitoring
 

@@ -1,6 +1,6 @@
 // "Ask DEODScan AI", assembled from backend/.env: OPENAI_API_KEY (required), OPENAI_MODEL, ASK_DAILY_LIMIT. Without a key it is simply off, and
 // nothing else in DEODScan depends on it.
-import type pg from 'pg';
+import type { Db } from 'mongodb';
 import { loadEnv } from '@deod/config';
 import { LlmError, openAiClient, type LlmClient } from './llm.js';
 import { MAX_QUESTION_CHARS, runAsk, type AskResult, type Turn } from './ask.js';
@@ -20,7 +20,7 @@ export interface AskService {
 }
 
 /** `llm` can be passed in (tests); otherwise the OpenAI client is built from backend/.env, or the service reports that it is off. */
-export function createAsk(db: pg.Pool, llm?: LlmClient | null): AskService {
+export function createAsk(db: Db, llm?: LlmClient | null): AskService {
   const env = loadEnv();
   const limit = env.ASK_DAILY_LIMIT;
   const client = llm !== undefined ? llm : env.OPENAI_API_KEY ? openAiClient(env.OPENAI_API_KEY, env.OPENAI_MODEL) : null;

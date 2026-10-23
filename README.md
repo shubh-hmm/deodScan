@@ -10,7 +10,7 @@ A read-only dashboard that tracks DEOD token movement on **BNB Chain**:
 The app never signs, sends or trades anything. Dune is the only source of on-chain data; the app holds no private keys and does not use any exchange API. The one other data source is the live DEOD market price in the dashboard header, from the free CoinGecko API (no key). It is shown as a market price, kept separate from the on-chain data, and is never stored.
 
 ```
-Dune (BNB Chain) ──► worker (sync from Dune, check rows, write to DB) ──► PostgreSQL ──► API (Fastify) ──► Web (Next.js)
+Dune (BNB Chain) ──► worker (sync from Dune, check rows, write to DB) ──► MongoDB ──► API (Fastify) ──► Web (Next.js)
 ```
 
 Only the backend talks to Dune. The browser talks only to the web app, and the web app calls the API from the server.
@@ -27,20 +27,20 @@ G:\Monitor
 │   └── lib/                API client, number formatting, colours
 │
 ├── backend/                Everything that touches data. Its own package.json and node_modules.
-│   ├── api/                Fastify HTTP API (port 4000): reads PostgreSQL, serves the dashboard and CSV exports
-│   ├── worker/             Daily sync: Dune -> validate -> PostgreSQL
+│   ├── api/                Fastify HTTP API (port 4000): reads MongoDB, serves the dashboard and CSV exports
+│   ├── worker/             Daily sync: Dune -> validate -> MongoDB
 │   ├── packages/           Libraries shared by the API and the worker
 │   │   ├── config/         Loads config/deod.yaml and .env
 │   │   ├── core/           Pure logic: amount maths, validation, classification (unit-tested)
-│   │   ├── db/             PostgreSQL access and migrations/
+│   │   ├── db/             MongoDB access, exact-number helpers, the structure (collections, validation, indexes) in migrate.ts
 │   │   ├── dune/           Dune API client
-│   │   └── analytics/      The SQL behind every dashboard number
+│   │   └── analytics/      The queries behind every dashboard number (MongoDB aggregations)
 │   ├── config/deod.yaml    All verified addresses (token, pools, exchanges)
 │   ├── queries/dune/       The SQL sent to Dune (verify/ holds the one-off checks)
-│   ├── scripts/            dev.ts (the one-command backend), audit, remove-exchange, dune-run, dev-postgres
+│   ├── scripts/            dev.ts (the one-command backend), audit, remove-exchange, postgres-to-mongo (one-off copy), dune-run
 │   ├── archive/            Data removed from the database, kept as CSV
-│   ├── .env                Secrets (DUNE_API_KEY, DATABASE_URL, ADMIN_TOKEN); git-ignored
-│   └── docker-compose.yml  PostgreSQL for a server deployment
+│   ├── .env                Secrets and settings (DUNE_API_KEY, MONGODB_URI, ADMIN_TOKEN); git-ignored
+│   └── docker-compose.yml  MongoDB for a server deployment
 │
 ├── docs/                   The original project brief
 ├── scripts/                start.ps1 and stop.ps1 (used by run.cmd and stop.cmd)
@@ -49,7 +49,7 @@ G:\Monitor
 ├── README.md  HANDOFF.md  CLAUDE.md
 ```
 
-**How the parts connect:** `worker` fetches from Dune and writes to PostgreSQL; `api` reads PostgreSQL and exposes `/api/*`; `frontend` calls the API from its server (never from the browser) and renders the pages. The frontend shares no code with the backend and imports none of it. Its one setting is `API_BASE_URL` (default `http://localhost:4000`, see `frontend/.env.example`).
+**How the parts connect:** `worker` fetches from Dune and writes to MongoDB; `api` reads MongoDB and exposes `/api/*`; `frontend` calls the API from its server (never from the browser) and renders the pages. The frontend shares no code with the backend and imports none of it. Its one setting is `API_BASE_URL` (default `http://localhost:4000`, see `frontend/.env.example`).
 
 **Commands** can be run from the project root (they forward to the right folder) or from inside `backend/` or `frontend/`:
 
@@ -121,7 +121,7 @@ Open the folder `G:\Monitor` in VS Code and open two terminals (Terminal > New T
 
 | Terminal | Folder | Command | What it starts |
 |---|---|---|---|
-| **Backend** | `G:\Monitor\backend` | `npm run dev` | PostgreSQL, then the API on port 4000. **The Dune worker is off.** |
+| **Backend** | `G:\Monitor\backend` | `npm run dev` | MongoDB, then the API on port 4000. **The Dune worker is off.** |
 | **Frontend** | `G:\Monitor\frontend` | `npm run dev` | The dashboard at http://localhost:3000 |
 
 Start the backend first. (If you start the dashboard first it still works; it just tells you the backend is not up yet.)
@@ -142,16 +142,16 @@ Start the backend first. (If you start the dashboard first it still works; it ju
 
 Settings are unchanged: `backend/.env` for the backend, and `frontend/.env.local` (optional, see `frontend/.env.example`). The backend command is `backend/scripts/dev.ts`; the frontend command is `frontend/scripts/dev.mjs`.
 
-The older commands all still work: `npm run db:dev`, `api`, `worker`, `web` (one part at a time, from the project root), and `run.cmd` / `stop.cmd` (everything in the background). `.\stop.cmd` also stops a stack started with `npm run dev`.
+The older commands all still work: `api`, `worker`, `web` (one part at a time, from the project root), and `run.cmd` / `stop.cmd` (everything in the background). `.\stop.cmd` also stops a stack started with `npm run dev`.
 
 ## Running locally
 
 ```bash
 npm run install:all                 # installs backend/ and frontend/ (one time)
-cp backend/.env.example backend/.env   # set DUNE_API_KEY, DATABASE_URL, ADMIN_TOKEN
+cp backend/.env.example backend/.env   # set DUNE_API_KEY, ADMIN_TOKEN (MONGODB_URI already points at the local database)
 
-npm run db:dev                     # local Postgres on :5433 (or: docker compose up -d postgres)
-npm run db:migrate                 # create the schema and load addresses/pools from backend/config/deod.yaml
+npm run dev                        # starts MongoDB on :27018 (data in backend/.mongodata) and the API; Ctrl+C stops both
+npm run db:migrate                 # create the collections/indexes and load addresses/pools from backend/config/deod.yaml (npm run dev also does this)
 
 # One-off history load (resumes from where it stopped if interrupted)
 npm run sync -- backfill --query exchange_transfers --from 2026-01-01 --window-days 92
@@ -171,7 +171,7 @@ The SQL lives in [`backend/queries/dune/`](backend/queries/dune/) and runs throu
 
 | Query | Source table | Purpose |
 |---|---|---|
-| `exchange_transfers.sql` | `tokens.transfers` | DEOD transfers involving any monitored exchange address, in one scan. The app works out IN/OUT per exchange in Postgres. |
+| `exchange_transfers.sql` | `tokens.transfers` | DEOD transfers involving any monitored exchange address, in one scan. The app works out IN/OUT per exchange in the database. |
 | `pancakeswap_swaps.sql` | `dex.trades` | DEOD swaps in the configured pools, with buy/sell worked out in SQL |
 
 Credit costs measured on the Analyst plan (export costs 10 credits per MB):
@@ -235,7 +235,7 @@ The **Alerts** page lists automatic alerts and manages a watchlist of wallets. D
 - Alerts are created after every sync (and after **Update today**). They are stored once: the same transfer can never alert twice, even if a sync or scan is repeated. Transfers older than 7 days never alert, so a backfill creates no flood.
 - To scan the stored data right now (database only, no credits): `npx tsx worker/src/cli.ts alerts` in the backend folder. `--rescan` re-reads the last 7 days (it can add alerts for a wallet you started watching after its activity was scanned, but never duplicates).
 - **Limits:** monitoring covers only recorded transactions (transfers to/from the monitored exchange addresses and swaps on the monitored pools). It cannot see other wallet transfers, and data arrives once per finished day or when you press Update today, so alerts are not real time. A wallet added to the watchlist alerts only on activity recorded afterwards.
-- The first start after this update applies database migration `003_alerts.sql` automatically (new tables only; nothing existing is changed).
+- The first start after this update creates the alert collections automatically (new collections only; nothing existing is changed).
 
 ### Telegram alerts with an access code (free, optional)
 
@@ -244,7 +244,7 @@ Alerts can also reach people on Telegram. Nobody gets in without the access code
 **Set up (once):**
 1. In Telegram, message **@BotFather**, send `/newbot`, and copy the **bot token**.
 2. Choose an **access code**: a long secret of at least 8 characters. You give it to the people you want to allow in.
-3. In `backend/.env` (never in git) set `TELEGRAM_BOT_TOKEN=...` and `TELEGRAM_ACCESS_CODE=...`, then restart the backend (`npm run dev`). This also applies migration `005_telegram_bot.sql`. The old `TELEGRAM_CHAT_ID` line is no longer used and can be deleted.
+3. In `backend/.env` (never in git) set `TELEGRAM_BOT_TOKEN=...` and `TELEGRAM_ACCESS_CODE=...`, then restart the backend (`npm run dev`). The old `TELEGRAM_CHAT_ID` line is no longer used and can be deleted.
 4. Check the token: `npx tsx worker/src/cli.ts telegram-check` (sends nothing). Check delivery: `npx tsx worker/src/cli.ts telegram-test` sends one clearly marked TEST message to everyone who is subscribed (it is not an alert and is not stored).
 
 **What a person does:**
@@ -293,12 +293,36 @@ The worker syncs only **finished** UTC days, so today's transfers appear after t
 - It needs the backend running (`npm run dev`), but not the worker. The same thing from a terminal: `npx tsx worker/src/cli.ts today`.
 - On a public server set `REFRESH_TODAY_ENABLED=false` in `backend/.env`: anyone who can open the page could otherwise press it and spend credits. The button then disappears.
 
+## Database: MongoDB
+
+The data lives in MongoDB (collections instead of tables). The structure is created and kept up to date by `backend/packages/db/src/migrate.ts` every time the API or the worker starts (collections, validation rules that refuse malformed documents, and indexes). Amounts are stored as exact `Decimal128` numbers (34 digits, no floating point) next to the raw on-chain integer kept as a digit string; a value that would not fit exactly is refused with a clear error instead of being rounded.
+
+| Setting | Where | Meaning |
+|---|---|---|
+| `MONGODB_URI` | `backend/.env` | Connection string; the database name is the part after the last slash. Default `mongodb://127.0.0.1:27018/deod_monitor` (the local database that `npm run dev` / `run.cmd` start, data in `backend/.mongodata`). For MongoDB Atlas or a server use its `mongodb+srv://...` string. |
+| `MONGOD_PATH` | environment (optional) | Use this `mongod` program instead of the one on the PATH / the downloaded copy. |
+
+**Moving the data over from the old PostgreSQL database (one-off).** PostgreSQL is only read, never changed:
+
+```bash
+cd backend
+# 1. stop the old backend first (stop.cmd) so no new rows arrive while copying; keep the PostgreSQL database itself running
+# 2. DATABASE_URL in backend/.env must still point at the PostgreSQL database
+npm run db:copy-from-postgres -- --dry-run     # reads everything, converts every row, writes nothing
+npm run db:copy-from-postgres                  # copies into an EMPTY MongoDB database, then verifies
+npm run db:copy-from-postgres -- --replace     # run again later: empties the copied collections first
+```
+
+The copy keeps every row id, so alert cursors and run histories stay valid, and it ends with a verification that must pass before you rely on the result: row counts of every table, the exact total of every amount column and of the raw on-chain integers, every single transfer / flow / swap compared field by field, and the wallet summary rebuilt in MongoDB compared wallet by wallet with PostgreSQL's. It exits with an error if anything differs.
+
+**Backups.** Use `mongodump --uri "$MONGODB_URI" --gzip --archive=deod-$(date +%F).archive.gz` (part of the free MongoDB Database Tools) and `mongorestore --gzip --archive=...` to restore; Atlas has automatic backups. Test a restore once into a scratch database.
+
 ## Data audit
 
 `npm run audit` cross-checks what the dashboard shows against independent sources. It is read-only and spends no Dune credits (`--no-chain` skips the blockchain sampling).
 
 1. **Database rules:** no duplicates, exact amount maths, consistent buy/sell sides, time order, flows re-derived from the raw transfers.
-2. **API vs fresh SQL:** every headline number (totals, per-exchange, PancakeSwap, charts, histogram, CSV exports, top wallets, wallet profile) recomputed independently, for the all-time, 30-day and 7-day views.
+2. **API vs fresh maths:** every headline number (totals, per-exchange, PancakeSwap, charts, histogram, CSV exports, top wallets, wallet profile) recomputed independently in plain JavaScript from the raw collections (not by the database's own aggregation), for the all-time, 30-day and 7-day views.
 3. **Database vs blockchain:** about 60 transfers and 80 swaps are sampled and compared with the on-chain receipts (addresses, exact amounts, block, timestamp, buy/sell side, and that the stored trader is the transaction signer).
 4. **Balances:** stored IN − OUT against the live on-chain balance of each monitored address. A small difference is expected while the current UTC day is not yet synced.
 5. **Prices:** each pool's on-chain price against CoinGecko and our last stored trade.
