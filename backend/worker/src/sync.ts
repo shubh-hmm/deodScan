@@ -31,7 +31,8 @@ const DAY = 24 * HOUR;
 const SETTLE_MS = Number(process.env.SYNC_SETTLE_HOURS ?? 2) * HOUR;
 
 /** 'today' = the owner pressed "Update today": the unfinished current day, fetched on demand. It never moves the synced_until checkpoint. */
-export type SyncMode = 'backfill' | 'daily' | 'today';
+/** 'today_auto' = the same, started by the worker's schedule (own budget, see autoToday.ts). */
+export type SyncMode = 'backfill' | 'daily' | 'today' | 'today_auto';
 
 let dune: DuneClient | undefined;
 function client() {
@@ -128,7 +129,7 @@ async function runWindow(name: QueryName, mode: SyncMode, start: Date, end: Date
          synced_until = CASE WHEN $6 THEN GREATEST(synced_until, $4::timestamptz) ELSE synced_until END, last_sync_at = now(),
          credits_total = credits_total + coalesce($5::numeric, 0), updated_at = now()
        WHERE query_name = $1`,
-      [name, result.executionId, newest, end, result.creditsUsed, mode !== 'today'],
+      [name, result.executionId, newest, end, result.creditsUsed, mode !== 'today' && mode !== 'today_auto'],
     );
     wlog.info({ fetched: result.rows.length, inserted, duplicate, rejected: rejected.length, credits: result.creditsUsed }, 'dune window done');
     return { fetched: result.rows.length, inserted, duplicate, rejected: rejected.length, credits: result.creditsUsed, newest };
@@ -253,7 +254,7 @@ export class SyncLimitError extends Error {
 
 /** Seconds until "Update today" may run again (0 = now). Based on the last 'today' run recorded in the database. */
 export async function todayCooldownSeconds(now = new Date(), db: pg.Pool = getPool()): Promise<number> {
-  const { rows } = await db.query<{ t: Date | null }>(`SELECT max(started_at) AS t FROM sync_runs WHERE mode = 'today'`);
+  const { rows } = await db.query<{ t: Date | null }>(`SELECT max(started_at) AS t FROM sync_runs WHERE mode IN ('today', 'today_auto')`);
   const last = rows[0]?.t;
   return last ? Math.max(0, Math.ceil(TODAY_COOLDOWN_SECONDS - (now.getTime() - last.getTime()) / 1000)) : 0;
 }
@@ -267,10 +268,13 @@ export class SyncCooldownError extends Error {
  * with the normal duplicate protection, so tomorrow's daily sync re-fetching the same day adds nothing twice. synced_until is
  * not moved. Costs Dune credits each time, hence the cooldown.
  */
-export async function syncToday(now = new Date()) {
+export async function syncToday(now = new Date(), source: 'manual' | 'auto' = 'manual') {
   return withSyncLock(async () => {
-    const usage = await todayUsage(now);
-    if (usage.remaining <= 0) throw new SyncLimitError(usage.max);
+    // The button's daily budget applies to manual updates only; the worker's scheduled updates have their own (two slots a day).
+    if (source === 'manual') {
+      const usage = await todayUsage(now);
+      if (usage.remaining <= 0) throw new SyncLimitError(usage.max);
+    }
     const wait = await todayCooldownSeconds(now);
     if (wait > 0) throw new SyncCooldownError(wait);
     const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
@@ -278,7 +282,7 @@ export async function syncToday(now = new Date()) {
     if (end.getTime() - start.getTime() < 60_000) throw new Error('too early: the UTC day has just started, try again in a minute');
     const totals = { inserted: 0, credits: 0, from: start.toISOString(), to: end.toISOString() };
     for (const q of QUERIES) {
-      const r = await runWindow(q, 'today', start, end);
+      const r = await runWindow(q, source === 'auto' ? 'today_auto' : 'today', start, end);
       totals.inserted += r.inserted; totals.credits += r.credits ?? 0;
     }
     await postProcess();

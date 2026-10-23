@@ -62,7 +62,7 @@ try {
     // unless you add --run (which then performs the update if it is due).
     const cfg = autoConfigFromEnv();
     const real = process.argv.includes('--run');
-    const r = await autoUpdateCheck(new Date(), cfg, getPool(), real ? syncToday : async () => undefined);
+    const r = await autoUpdateCheck(new Date(), cfg, getPool(), real ? (n: Date) => syncToday(n, 'auto') : async () => undefined);
     log.info({ enabled: cfg.enabled, timesUtc: cfg.slots.map((s) => `${String(s.hour).padStart(2, '0')}:${String(s.minute).padStart(2, '0')}`), warning: cfg.warning }, 'automatic update settings');
     console.log(r.ran ? (real ? `Updated now: ${r.reason}` : `Dry run: an update is DUE now (${r.reason}). Add --run to perform it (spends Dune credits).`) : `Nothing to do now: ${r.reason}`);
   } else if (cmd === 'ask-check') {

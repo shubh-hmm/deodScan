@@ -1,13 +1,13 @@
 // Automatic "today so far" updates: the worker fetches today's unfinished UTC day at fixed times (by default twice a day), so the dashboard
-// does not depend on someone pressing "Update today". It uses the SAME daily budget as the button (REFRESH_TODAY_MAX_PER_DAY, default 2),
-// so the Dune cost stays capped: automatic and manual updates together never exceed it.
+// does not depend on someone pressing "Update today". They are ADDITIONAL to the button: scheduled updates
+// have their own budget (one per scheduled time, recorded with mode 'today_auto'); the button keeps its own REFRESH_TODAY_MAX_PER_DAY.
+// A button press never skips a scheduled update.
 //
-// Rule, checked every minute by the worker: take the most recent scheduled time that has passed today (UTC). If nothing has fetched today's
-// data since then, the budget is not used up and the minimum gap since the last update has passed, run one update. A manual press after that
-// time counts as the update for that slot. A slot the worker missed (it was off) is not made up later except for the most recent one.
+// Rule, checked every minute by the worker: take the most recent scheduled time that has passed today (UTC). If no scheduled update has run
+// since then and the minimum gap since the last update of any kind has passed, run one update. A manual press does not count for the slot. A slot the worker missed (it was off) is not made up later except for the most recent one.
 import type pg from 'pg';
 import { getPool } from '@deod/db';
-import { QUERIES, SyncBusyError, SyncCooldownError, SyncLimitError, log, syncToday, todayCooldownSeconds, todayUsage } from './sync.js';
+import { QUERIES, SyncBusyError, SyncCooldownError, SyncLimitError, log, syncToday, todayCooldownSeconds } from './sync.js';
 
 export interface Slot { hour: number; minute: number }
 
@@ -52,15 +52,13 @@ export interface AutoResult { ran: boolean; reason: string }
 
 /** One check. `run` is the update itself (syncToday), replaceable for tests. Never throws for an expected refusal. */
 export async function autoUpdateCheck(
-  now = new Date(), cfg: AutoConfig = autoConfigFromEnv(), db: pg.Pool = getPool(), run: (now: Date) => Promise<unknown> = syncToday,
+  now = new Date(), cfg: AutoConfig = autoConfigFromEnv(), db: pg.Pool = getPool(), run: (now: Date) => Promise<unknown> = (n) => syncToday(n, 'auto'),
 ): Promise<AutoResult> {
   if (!cfg.enabled) return { ran: false, reason: 'automatic updates are switched off (AUTO_UPDATE_TODAY=false)' };
   const slot = latestSlot(now, cfg.slots);
   if (!slot) return { ran: false, reason: 'no scheduled time has come yet today' };
-  const { rows } = await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM sync_runs WHERE mode = 'today' AND query_name = $1 AND started_at >= $2`, [QUERIES[0], slot]);
-  if ((rows[0]?.n ?? 0) > 0) return { ran: false, reason: `today's data was already updated since ${slot.toISOString().slice(11, 16)} UTC` };
-  const usage = await todayUsage(now, db);
-  if (usage.remaining <= 0) return { ran: false, reason: `the daily limit of ${usage.max} updates is used up` };
+  const { rows } = await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM sync_runs WHERE mode = 'today_auto' AND query_name = $1 AND started_at >= $2`, [QUERIES[0], slot]);
+  if ((rows[0]?.n ?? 0) > 0) return { ran: false, reason: `a scheduled update already ran since ${slot.toISOString().slice(11, 16)} UTC` };
   const wait = await todayCooldownSeconds(now, db);
   if (wait > 0) return { ran: false, reason: `the last update was too recent (try again in ${Math.ceil(wait / 60)} min)` };
   try {

@@ -79,7 +79,7 @@ export function RefreshToday() {
   if (!enabled) return null;
   // The worker's scheduled times are in UTC; show them in the viewer's own time so nobody has to convert.
   const autoText = auto?.enabled && auto.timesUtc.length
-    ? ` The worker also updates by itself at ${auto.timesUtc.map((t) => { const [h, m] = t.split(':').map(Number); return new Date(Date.UTC(2026, 0, 1, h, m)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }).join(' and ')} your time (${auto.timesUtc.join(' and ')} UTC), using the same ${usage?.max ?? 2} updates a day.`
+    ? ` The worker also updates by itself at ${auto.timesUtc.map((t) => { const [h, m] = t.split(':').map(Number); return new Date(Date.UTC(2026, 0, 1, h, m)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }).join(' and ')} your time (${auto.timesUtc.join(' and ')} UTC), in addition to your ${usage?.max ?? 2} button updates a day.`
     : '';
   const limitReached = !!usage && usage.remaining <= 0;
 
@@ -99,7 +99,7 @@ export function RefreshToday() {
       disabled={phase === 'running' || limitReached}
       onClick={() => setPhase('confirm')}
       title={limitReached
-        ? `Used ${usage!.max} of ${usage!.max} updates today (automatic and manual together). It resets at 00:00 UTC. Finished days are still synced automatically.${autoText}`
+        ? `Used ${usage!.max} of ${usage!.max} button updates today. It resets at 00:00 UTC. Finished days are still synced automatically.${autoText}`
         : `Fetch today's unfinished UTC day from Dune (finished days are synced automatically by the worker).${usage ? ` ${usage.remaining} of ${usage.max} updates left today.` : ''}${autoText}`}
     >
       <span className={phase === 'running' ? 'animate-spin' : ''}>{Icons.refresh}</span>

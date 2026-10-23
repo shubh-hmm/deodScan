@@ -47,8 +47,8 @@ describe.skipIf(!admin)('when an automatic update is due', () => {
   const dbName = `deod_auto_test_${Date.now()}`;
   let pool: pg.Pool;
   const cfg: AutoConfig = { enabled: true, slots: parseTimes('06:00,14:00')!, warning: null };
-  const record = async (at: string) => {                         // one update = one run per query
-    for (const q of ['exchange_transfers', 'pancakeswap_swaps']) await pool.query(`INSERT INTO sync_runs (query_name, mode, window_start, window_end, started_at, status) VALUES ($1, 'today', $2, $2, $2, 'ok')`, [q, at]);
+  const record = async (at: string, mode = 'today_auto') => {      // one update = one run per query; 'today' = a button press, 'today_auto' = the schedule
+    for (const q of ['exchange_transfers', 'pancakeswap_swaps']) await pool.query(`INSERT INTO sync_runs (query_name, mode, window_start, window_end, started_at, status) VALUES ($1, $3, $2, $2, $2, 'ok')`, [q, at, mode]);
   };
   const clear = () => pool.query('DELETE FROM sync_runs');
   let calls: Date[] = [];
@@ -80,7 +80,7 @@ describe.skipIf(!admin)('when an automatic update is due', () => {
     for (const t of ['2026-10-22T06:01:30Z', '2026-10-22T06:30:00Z', '2026-10-22T13:59:00Z']) {
       const r = await check(t);
       expect(r.ran).toBe(false);
-      expect(r.reason).toMatch(/already updated since 06:00 UTC/);
+      expect(r.reason).toMatch(/scheduled update already ran since 06:00 UTC/);
     }
     expect(calls).toHaveLength(1);
   });
@@ -93,19 +93,21 @@ describe.skipIf(!admin)('when an automatic update is due', () => {
     expect(calls).toHaveLength(2);
   });
 
-  it('shares the daily budget with the button: a manual update counts, and the automatic one stops at the limit', async () => {
+  it('is ADDITIONAL to the button: any number of button presses never skips or blocks a scheduled update', async () => {
     await clear(); calls = [];
-    await record('2026-10-22T07:10:00Z');                         // someone pressed the button after the first slot
-    await record('2026-10-22T09:00:00Z');                         // and again: the daily limit of 2 is now used
-    expect((await check('2026-10-22T14:00:30Z')).reason).toMatch(/daily limit of 2 updates is used up/);
-    expect(calls).toHaveLength(0);
+    await record('2026-10-22T06:10:00Z', 'today'); await record('2026-10-22T09:00:00Z', 'today'); await record('2026-10-22T10:00:00Z', 'today');
+    const r = await check('2026-10-22T14:00:30Z', { run: run('2026-10-22T14:00:30Z') });
+    expect(r.ran).toBe(true);
+    expect(calls).toHaveLength(1);
   });
 
-  it('counts a manual update after a scheduled time as that time\'s update (no second one right after)', async () => {
+  it('runs both scheduled updates even when the button was used right after each', async () => {
     await clear(); calls = [];
-    await record('2026-10-22T06:20:00Z');
-    expect((await check('2026-10-22T06:45:00Z')).reason).toMatch(/already updated since 06:00 UTC/);
-    expect(calls).toHaveLength(0);
+    await check('2026-10-22T06:00:30Z', { run: run('2026-10-22T06:00:30Z') });
+    await record('2026-10-22T06:30:00Z', 'today');                // a press after the 06:00 update
+    expect((await check('2026-10-22T06:45:00Z')).reason).toMatch(/scheduled update already ran since 06:00 UTC/);
+    expect((await check('2026-10-22T14:00:30Z', { run: run('2026-10-22T14:00:30Z') })).ran).toBe(true);
+    expect(calls).toHaveLength(2);
   });
 
   it('makes up only the latest missed time when the worker was off, not every missed one', async () => {
@@ -115,9 +117,9 @@ describe.skipIf(!admin)('when an automatic update is due', () => {
     expect(calls).toHaveLength(1);
   });
 
-  it('keeps the minimum gap after a recent update (a manual one before the slot)', async () => {
+  it('keeps the minimum gap after a recent update of any kind (a manual one just before the slot)', async () => {
     await clear(); calls = [];
-    await record('2026-10-22T13:58:00Z');
+    await record('2026-10-22T13:58:00Z', 'today');
     expect((await check('2026-10-22T14:03:00Z')).reason).toMatch(/too recent/);
     expect((await check('2026-10-22T14:09:00Z', { run: run('2026-10-22T14:09:00Z') })).ran).toBe(true);
   });
@@ -145,6 +147,6 @@ describe.skipIf(!admin)('when an automatic update is due', () => {
     await clear(); calls = [];
     const boom = async () => { await record('2026-10-22T06:00:40Z'); throw new Error('Dune failed'); };
     await expect(check('2026-10-22T06:00:30Z', { run: boom })).rejects.toThrow('Dune failed');
-    expect((await check('2026-10-22T06:05:00Z')).reason).toMatch(/already updated since 06:00 UTC/);   // the run was started, so Dune may have billed it
+    expect((await check('2026-10-22T06:05:00Z')).reason).toMatch(/scheduled update already ran since 06:00 UTC/);   // the run was started, so Dune may have billed it
   });
 });
